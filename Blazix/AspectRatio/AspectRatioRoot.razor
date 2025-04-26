@@ -1,0 +1,52 @@
+﻿<div style="@aspectRatioWrapperStyle"
+     data-blazix-aspect-ratio-wrapper>
+    <div @attributes="AdditionalAttributes"
+         style="@GetStyle()"
+         @ref="Element">
+        @ChildContent
+    </div>
+</div>
+
+@code {
+    private string? aspectRatioWrapperStyle;
+
+    /// <summary>
+    /// Gets or sets the height of the ratio.
+    /// </summary>
+    [Parameter]
+    public double Height { get; set; } = 1;
+
+    /// <summary>
+    /// Gets or sets the width of the ratio.
+    /// </summary>
+    [Parameter]
+    public double Width { get; set; } = 1;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        aspectRatioWrapperStyle = $"position: relative; width: 100%; padding-bottom: calc(100%/({Width}/{Height}));";
+    }
+
+    private string? GetStyle() => AttributeUtilities.CombineClassNames(AdditionalAttributes, "position: absolute; top: 0; left: 0; bottom: 0; right: 0;");
+}
