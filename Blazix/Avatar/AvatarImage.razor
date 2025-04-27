@@ -4,17 +4,19 @@
 
 @inject IJSRuntime JSRuntime
 
-@if (Context!.Status == ImageLoadingStatus.Loaded)
+@if (Context is not null && Context.Status == ImageLoadingStatus.Loaded)
 {
     <img @attributes="AdditionalAttributes"
-    @ref="Element" />
+         @ref="Element"
+         src="@actualSrc" />
 }
 
 @code {
-    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
-    private DotNetObjectReference<AvatarImage>? dotnetObjectReference;
-    private string? sourceCached;
-    private bool hasRendered = true;
+    private IJSObjectReference? module;
+    private DotNetObjectReference<AvatarImage>? dotNetObjectReference;
+    private string? currentSrc;
+    private string? actualSrc; // The src currently being loaded or successfully loaded
+    private bool isDisposed;
 
     [CascadingParameter]
     private AvatarContext? Context { get; set; }
@@ -42,88 +44,110 @@
     /// <inheritdoc />
     protected override void OnInitialized()
     {
-        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
-            "import", "./_content/Blazix/blazix-avatar.min.js").AsTask());
-    }
-
-    /// <inheritdoc />
-    protected override void OnParametersSet()
-    {
         if (Context == null)
         {
             throw new InvalidOperationException(
-                $"'{GetType()}' requires to be nested in '{nameof(AvatarContext)}'.");
+                $"{nameof(AvatarImage)} must be rendered within an {nameof(AvatarRoot)}."
+            );
         }
+        dotNetObjectReference = DotNetObjectReference.Create(this);
+        Context.OnStatusChange += HandleContextStatusChange;
     }
 
     /// <inheritdoc />
-    protected override Task OnAfterRenderAsync(bool firstRender)
+    protected override async Task OnParametersSetAsync()
     {
-        if (firstRender)
+        string? newSrc = null;
+        if (AdditionalAttributes?.TryGetValue("src", out var srcValue) == true)
         {
-            dotnetObjectReference = DotNetObjectReference.Create(this);
-
-            return LoadImage();
+            newSrc = srcValue?.ToString();
         }
 
-        return Task.CompletedTask;
+        if (newSrc != currentSrc)
+        {
+            currentSrc = newSrc;
+            await LoadImage();
+        }
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (moduleTask.IsValueCreated)
+        if (isDisposed) return;
+        isDisposed = true;
+
+        GC.SuppressFinalize(this);
+
+        if (Context != null)
         {
-            var module = await moduleTask.Value;
-            await module.DisposeAsync();
+            Context.OnStatusChange -= HandleContextStatusChange;
+        }
+
+        dotNetObjectReference?.Dispose();
+
+        if (module != null)
+        {
+            try
+            {
+                await module.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { /* Swallow */ }
+            catch (TaskCanceledException) { /* Swallow */ }
         }
     }
 
     private async Task LoadImage()
     {
-        if (AdditionalAttributes == null || !AdditionalAttributes.TryGetValue("src", out var value)) return;
+        module ??= await JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import",
+            "./_content/Blazix/blazix-avatar.js"
+        );
 
-        var src = value.ToString();
+        actualSrc = currentSrc;
 
-        if (sourceCached != src)
+        if (string.IsNullOrEmpty(actualSrc))
         {
-            if (!string.IsNullOrEmpty(src))
-            {
-                var module = await moduleTask.Value;
-                await module.InvokeVoidAsync("loadImage", dotnetObjectReference, src);
-            }
-
-            sourceCached = src;
-            hasRendered = false;
+            await HandleLoadingStatusChange("error");
+            return;
         }
+
+        // Wait for image to load in JS.
+        // If awaited, the call would be finished first while the image is loading.
+        _ = module.InvokeVoidAsync(
+            "loadImage",
+            dotNetObjectReference,
+            actualSrc
+        );
     }
 
-    /// <summary>
-    /// Parses the given status string into an ImageLoadingStatus enum.
-    /// </summary>
-    /// <param name="status">The string parameter to be parsed as loading status.</param>
-    private static ImageLoadingStatus ParseLoadingStatus(string status)
-    {
-        return status switch
-        {
-            "idle" => ImageLoadingStatus.Idle,
-            "loading" => ImageLoadingStatus.Loading,
-            "loaded" => ImageLoadingStatus.Loaded,
-            "error" => ImageLoadingStatus.Error,
-            _ => ImageLoadingStatus.Idle
-        };
-    }
-
-    /// <summary>
-    /// Updates the image loading status and triggers a state change.
-    /// </summary>
-    /// <param name="status">The string parameter representing the new loading status.</param>
     [JSInvokable]
     public async Task HandleLoadingStatusChange(string status)
     {
-        Context!.Status = ParseLoadingStatus(status);
-        await OnLoadingStatusChange.InvokeAsync(Context!.Status);
-        StateHasChanged();
-        Context!.Fallback?.Rerender();
+        if (isDisposed || Context is null) return;
+
+        var newStatus = status switch
+        {
+            "loading" => ImageLoadingStatus.Loading,
+            "loaded" => ImageLoadingStatus.Loaded,
+            "error" => ImageLoadingStatus.Error,
+            _ => ImageLoadingStatus.Idle,
+        };
+
+        await Context.SetStatusAsync(newStatus);
+
+        await OnLoadingStatusChange.InvokeAsync(newStatus);
+    }
+
+    /// <summary>
+    /// Re-renders the component when the context status changes.
+    /// </summary>
+    private Task HandleContextStatusChange(ImageLoadingStatus status)
+    {
+        if (!isDisposed)
+        {
+            return InvokeAsync(StateHasChanged);
+        }
+
+        return Task.CompletedTask;
     }
 }

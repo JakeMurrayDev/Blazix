@@ -1,18 +1,35 @@
 ﻿using Microsoft.AspNetCore.Components;
 
 namespace Blazix.Avatar;
-internal class AvatarContext : ComponentBase
+
+internal class AvatarContext
 {
     /// <summary>
     /// The status of the <see cref="AvatarImage"/> being loaded.
     /// </summary>
-    internal ImageLoadingStatus Status { get; set; }
+    internal ImageLoadingStatus Status { get; private set; } = ImageLoadingStatus.Idle;
 
     /// <summary>
-    /// Gets or sets the <see cref="AvatarFallback"/> for the <see cref="AvatarRoot"/>.
-    /// <para>
-    /// This needs to be re-rendered when the <see cref="Status"/> changes.
-    /// </para>
+    /// Action to notify subscribers (<see cref="AvatarImage"/> and <see cref="AvatarFallback"/>) about status changes.
     /// </summary>
-    internal AvatarFallback? Fallback { get; set; }
+    internal Func<ImageLoadingStatus, Task>? OnStatusChange { get; set; }
+
+    /// <summary>
+    /// Sets the status of the <see cref="AvatarImage"/> being loaded
+    /// </summary>
+    /// <param name="newStatus">The new status.</param>
+    internal async Task SetStatusAsync(ImageLoadingStatus newStatus)
+    {
+        if (Status != newStatus)
+        {
+            Status = newStatus;
+            if (OnStatusChange != null)
+            {
+                // Use await Task.Yield() to ensure the UI updates happen asynchronously
+                // if multiple updates occur rapidly.
+                await Task.Yield();
+                await OnStatusChange.Invoke(newStatus);
+            }
+        }
+    }
 }

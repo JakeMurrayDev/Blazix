@@ -1,14 +1,17 @@
-﻿@if (canRender || Context!.Status != ImageLoadingStatus.Loaded)
+﻿@implements IDisposable
+
+@if (canRender && Context is not null && Context.Status != ImageLoadingStatus.Loaded)
 {
-    <span @attributes="AdditionalAttributes"
-          @ref="Element">
+    <span @attributes="AdditionalAttributes" @ref="Element">
         @ChildContent
     </span>
 }
 
 @code {
-    private int? delayCached;
-    private bool canRender;
+    private CancellationTokenSource? delayCts;
+    private bool canRender; // Flag indicating if the delay has passed (or wasn't needed)
+    private int? currentDelayMs;
+    private bool disposed;
 
     [CascadingParameter]
     private AvatarContext? Context { get; set; }
@@ -17,7 +20,7 @@
     /// Gets or sets the delay in milliseconds before the fallback is rendered.
     /// </summary>
     [Parameter]
-    public int? Delay { get; set; }
+    public int? DelayMs { get; set; }
 
     /// <summary>
     /// Defines the child components of this instance.
@@ -40,59 +43,109 @@
     public ElementReference? Element { get; private set; }
 
     /// <inheritdoc />
-    protected override async Task OnParametersSetAsync()
+    protected override void OnInitialized()
     {
-        if (Context == null)
+        if (Context is null)
         {
             throw new InvalidOperationException(
-                $"'{GetType()}' requires to be nested in '{nameof(AvatarContext)}'.");
+                $"{nameof(AvatarFallback)} must be rendered within an {nameof(AvatarRoot)}."
+            );
         }
+        Context.OnStatusChange += HandleContextStatusChange;
+    }
 
-        if (Delay is null or 0)
+    /// <inheritdoc />
+    protected override async Task OnParametersSetAsync()
+    {
+        if (Context is null) return;
+
+        // Re-initialize delay logic if the DelayMs parameter changes,
+        // or if the image status changes (handled by HandleContextStatusChange).
+        if (DelayMs != currentDelayMs)
         {
-            SetCanRender(true);
-        }
-        else if (delayCached != Delay)
-        {
-            await DelayRender(Delay.Value);
-            delayCached = Delay;
+            currentDelayMs = DelayMs;
+            // Start or reset the delay timer based on the new DelayMs value.
+            await InitializeDelayAsync();
         }
     }
 
     /// <inheritdoc />
-    protected override void OnAfterRender(bool firstRender)
+    public void Dispose()
     {
-        if (firstRender)
+        if (disposed) return;
+        disposed = true;
+
+        GC.SuppressFinalize(this);
+
+        delayCts?.Cancel();
+        delayCts?.Dispose();
+
+        if (Context is not null)
         {
-            Context!.Fallback = this;
+            Context.OnStatusChange -= HandleContextStatusChange;
+        }
+    }
+
+    private async Task InitializeDelayAsync()
+    {
+        // Cancel any previous delay timer
+        delayCts?.Cancel();
+        delayCts?.Dispose();
+        delayCts = null;
+
+        var delay = DelayMs ?? 0;
+
+        if (delay <= 0)
+        {
+            // No delay required, allow rendering immediately (if status isn't 'Loaded')
+            canRender = true;
+            // StateHasChanged is implicitly called after OnParametersSetAsync completes
+        }
+        else
+        {
+            // Start with canRender as false if there's a positive delay
+            canRender = false;
+            delayCts = new CancellationTokenSource();
+            try
+            {
+                await Task.Delay(delay, delayCts.Token);
+                // Delay completed without cancellation.
+                if (!disposed)
+                {
+                    canRender = true;
+                    // Trigger a re-render because the state (canRender) changed after an await.
+                    await InvokeAsync(StateHasChanged);
+                }
+            }
+            catch (TaskCanceledException)
+            {
+                // Delay was cancelled (e.g., image loaded, component disposed, or DelayMs changed).
+                // canRender remains false or is set by HandleContextStatusChange.
+            }
         }
     }
 
     /// <summary>
-    /// Rerenders the <see cref="AvatarFallback"/>.
+    /// Handles status changes from the context.
     /// </summary>
-    internal void Rerender()
+    private Task HandleContextStatusChange(ImageLoadingStatus status)
     {
-        StateHasChanged();
-    }
+        if (disposed) return Task.CompletedTask;
 
-    /// <summary>
-    /// Sets the <see cref="canRender"/> field.
-    /// </summary>
-    /// <param name="canRender">The value to be passed.</param>
-    private void SetCanRender(bool canRender)
-    {
-        this.canRender = canRender;
-        StateHasChanged();
-    }
+        if (status == ImageLoadingStatus.Loaded)
+        {
+            // Image loaded successfully, cancel any pending delay and ensure fallback hides.
+            delayCts?.Cancel();
+            canRender = false;
+        }
+        else if (!canRender && (DelayMs ?? 0) <= 0)
+        {
+            // Image failed (or is loading) and there's no delay, ensure fallback shows.
+            canRender = true;
+        }
+        // If there's an active delay, InitializeDelayAsync/Task.Delay handles setting canRender=true later.
 
-    /// <summary>
-    /// Delays the rendering of the fallback.
-    /// </summary>
-    /// <param name="delay">The delay in milliseconds.</param>
-    private async Task DelayRender(int delay)
-    {
-        await Task.Delay(delay);
-        SetCanRender(true);
+        // Trigger a re-render to show/hide the fallback based on the new status and canRender flag.
+        return InvokeAsync(StateHasChanged);
     }
 }

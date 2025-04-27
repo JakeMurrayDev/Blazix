@@ -7,13 +7,10 @@
 </CascadingValue>
 
 @code {
-    AvatarContext avatarContext = new();
+    private AvatarContext avatarContext = new();
 
     /// <summary>
-    /// Specifies the content to be rendered inside this <see cref="AvatarRoot"/>.
-    /// <para>
-    /// Can only accept one <see cref="AvatarImage"/> and one <see cref="AvatarFallback"/>.
-    /// </para>
+    /// Defines the child components of this instance.
     /// </summary>
     [Parameter] public RenderFragment? ChildContent { get; set; }
 
