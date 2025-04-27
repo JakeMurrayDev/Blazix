@@ -25,4 +25,22 @@ internal static class AttributeUtilities
 
         return $"{classAttributeValue} {classNames}";
     }
+
+    /// <summary>
+    /// Retrieves the 'id' from additional attributes or provides a default.
+    /// </summary>
+    /// <param name="additionalAttributes">The dictionary containing attributes.</param>
+    /// <param name="defaultId">The default id to be returned if id attributes is empty.</param>
+    /// <returns>The 'id' if found, otherwise the defaultId.</returns>
+    public static string GetIdOrDefault(IReadOnlyDictionary<string, object>? additionalAttributes,
+        string defaultId)
+    {
+        if (additionalAttributes?.TryGetValue("id", out var id) is true && id is string idAttributeValue &&
+            !string.IsNullOrEmpty(idAttributeValue))
+        {
+            return idAttributeValue;
+        }
+
+        return defaultId;
+    }
 }

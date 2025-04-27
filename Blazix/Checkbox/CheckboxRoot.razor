@@ -1,0 +1,288 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using System.Linq.Expressions
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.JSInterop
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+<CascadingValue Value="context"
+                IsFixed="true">
+    <button @ref="buttonElement"
+            type="button"
+            role="checkbox"
+            aria-checked="@(CurrentCheckedState.GetAriaChecked())"
+            aria-required="@(Required ? "true" : null)"
+            data-state="@(CurrentCheckedState.GetDataState())"
+            data-disabled="@(Disabled ? string.Empty : null)"
+            disabled="@Disabled"
+            value="@ValueAttribute"
+            @attributes="AdditionalAttributes"
+            id="@Id"
+            @onkeydown="HandleKeyDown"
+            @onkeydown:preventDefault="keydownPreventDefault"
+            @onclick="HandleClick"
+            @onclick:stopPropagation="clickStopPropagation">
+        @ChildContent
+    </button>
+
+    @if (isFormControl)
+    {
+        <NullableInputCheckbox @ref="inputCheckbox"
+                               aria-hidden="true"
+                               name="@Name"
+                               ValueAttribute="@ValueAttribute"
+                               Value="@CurrentValue"
+                               ValueChanged="@HandleCheckboxValueChanged"
+                               ValueExpression="@CheckedExpression"
+                               DisplayName="@DisplayName"
+                               disabled="@Disabled"
+                               required="@Required"
+                               tabIndex="-1"
+                               style="transform: translateX(-100%); position: absolute; pointer-events: none; opacity: 0; margin: 0;" />
+    }
+</CascadingValue>
+
+@code {
+    private readonly string defaultId = $"blx-checkbox-{Guid.NewGuid():N}";
+    private CheckboxContext context = new(CheckedState.Unchecked, false);
+    private CheckedState internalState = CheckedState.Unchecked;
+    private bool keydownPreventDefault;
+    private bool clickStopPropagation;
+    private bool isFormControl = false;
+    private bool hasConsumerStoppedPropagation = false;
+    private ElementReference buttonElement;
+    private NullableInputCheckbox? inputCheckbox;
+    private bool previousIsFormControlValue = false;
+    private CheckedState initialCheckedState = CheckedState.Unchecked;
+    private IJSObjectReference? module;
+
+    [CascadingParameter]
+    private EditContext? EditContext { get; set; }
+
+    /// <summary>
+    /// The checked state of the checkbox when it is initially rendered. Use when you do not need to control its checked state.
+    /// </summary>
+    [Parameter]
+    public bool? DefaultChecked { get; set; }
+
+    /// <summary>
+    /// The controlled checked state of the checkbox.
+    /// </summary>
+    [Parameter]
+    public bool? Checked { get; set; }
+
+    /// <summary>
+    /// Event handler called when the checked state of the checkbox changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool?> CheckedChanged { get; set; }
+
+    /// <summary>
+    /// Gets or sets an expression that identifies the bound <see cref="Checked"/>.
+    /// </summary>
+    [Parameter]
+    public Expression<Func<bool?>>? CheckedExpression { get; set; }
+
+    /// <summary>
+    /// Gets or sets the display name of the switch.
+    /// <para>
+    /// This value is used when generating error messages when the input value fails to parse correctly.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public string? DisplayName { get; set; }
+
+    /// <summary>
+    /// When <see langword="true" />, prevents the user from interacting with the checkbox.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// When true, indicates that the user must check the checkbox before the owning form can be submitted.
+    /// </summary>
+    [Parameter]
+    public bool Required { get; set; }
+
+    /// <summary>
+    /// The name of the checkbox. Submitted with its owning form as part of a name/value pair.
+    /// </summary>
+    [Parameter]
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// Gets or sets the value given as data when submitted with a name.
+    /// <para>
+    /// Default value is "on".
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public string ValueAttribute { get; set; } = "on";
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; private set; }
+
+    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+    private bool IsControlled => CheckedChanged.HasDelegate;
+    private CheckedState CurrentCheckedState => IsControlled ? Checked.ToCheckedState() : internalState;
+    private bool? CurrentValue => CurrentCheckedState.ToNullableBool();
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        initialCheckedState = IsControlled ? Checked.ToCheckedState() : DefaultChecked.ToCheckedState();
+        if (!IsControlled)
+        {
+            internalState = initialCheckedState;
+        }
+        UpdateContext();
+        isFormControl = EditContext != null;
+        previousIsFormControlValue = isFormControl;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (!IsControlled && internalState != DefaultChecked.ToCheckedState())
+        {
+            initialCheckedState = DefaultChecked.ToCheckedState();
+            internalState = initialCheckedState;
+        }
+        else if (IsControlled && internalState != Checked.ToCheckedState())
+        {
+            initialCheckedState = Checked.ToCheckedState();
+        }
+
+        bool currentIsFormControl = EditContext != null;
+        if (currentIsFormControl != previousIsFormControlValue)
+        {
+            isFormControl = currentIsFormControl;
+            previousIsFormControlValue = isFormControl;
+        }
+        UpdateContext();
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            module = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Blazix/blazix-checkbox.js");
+        }
+
+        // Sync size after module is potentially loaded and if needed
+        if (module != null && isFormControl && inputCheckbox?.Element != null)
+        {
+            await SyncInputSize();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (module != null)
+        {
+            await module.DisposeAsync();
+        }
+    }
+
+    private void UpdateContext()
+    {
+        context = new CheckboxContext(CurrentCheckedState, Disabled);
+    }
+
+    private async Task SyncInputSize()
+    {
+        if (module != null && inputCheckbox?.Element != null)
+        {
+            await module.InvokeVoidAsync("syncInputSize", buttonElement, inputCheckbox.Element);
+        }
+    }
+
+    private void HandleKeyDown(KeyboardEventArgs e)
+    {
+        keydownPreventDefault = e.Key == "Enter";
+    }
+
+    private async Task HandleClick(MouseEventArgs e)
+    {
+        if (Disabled || module == null) return;
+
+        CheckedState nextState = CurrentCheckedState switch
+        {
+            CheckedState.Indeterminate => CheckedState.Checked,
+            CheckedState.Checked => CheckedState.Unchecked,
+            CheckedState.Unchecked => CheckedState.Checked,
+            _ => CheckedState.Checked
+        };
+
+        hasConsumerStoppedPropagation = false;
+        clickStopPropagation = false;
+
+        if (IsControlled)
+        {
+            await CheckedChanged.InvokeAsync(nextState.ToNullableBool());
+            hasConsumerStoppedPropagation = false;
+        }
+        else
+        {
+            internalState = nextState;
+            UpdateContext();
+        }
+
+        if (isFormControl)
+        {
+            clickStopPropagation = true;
+
+            if (inputCheckbox?.Element != null)
+            {
+                await module.InvokeVoidAsync(
+                    "triggerInputEvents",
+                    inputCheckbox.Element,
+                    nextState.ToNullableBool(),
+                    !hasConsumerStoppedPropagation // bubbles = true
+                );
+            }
+        }
+        // If not in a form, but uncontrolled, we might need to trigger a render
+        else if (!IsControlled)
+        {
+            StateHasChanged();
+        }
+    }
+
+    private Task HandleCheckboxValueChanged(bool? newValue)
+    {
+        if (!IsControlled)
+        {
+            CheckedState newState = newValue.ToCheckedState();
+            if (internalState != newState)
+            {
+                internalState = newState;
+                UpdateContext();
+            }
+        }
+        return Task.CompletedTask;
+    }
+}
