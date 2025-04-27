@@ -48,5 +48,5 @@
         aspectRatioWrapperStyle = $"position: relative; width: 100%; padding-bottom: calc(100%/({Width}/{Height}));";
     }
 
-    private string? GetStyle() => AttributeUtilities.CombineClassNames(AdditionalAttributes, "position: absolute; top: 0; left: 0; bottom: 0; right: 0;");
+    private string? GetStyle() => CombineClassNames(AdditionalAttributes, "position: absolute; top: 0; left: 0; bottom: 0; right: 0;");
 }
