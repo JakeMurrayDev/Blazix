@@ -26,6 +26,28 @@ internal static class AttributeUtilities
         return $"{classAttributeValue} {classNames}";
     }
 
+    public static string? CombineStyles(IReadOnlyDictionary<string, object>? additionalAttributes, string? styles)
+    {
+        if (additionalAttributes is null || !additionalAttributes.TryGetValue("style", out var style))
+        {
+            return styles;
+        }
+
+        var styleAttributeValue = Convert.ToString(style, CultureInfo.InvariantCulture);
+
+        if (string.IsNullOrEmpty(styleAttributeValue))
+        {
+            return styles;
+        }
+
+        if (string.IsNullOrEmpty(styles))
+        {
+            return styleAttributeValue;
+        }
+
+        return $"{styleAttributeValue} {styles}";
+    }
+
     /// <summary>
     /// Retrieves the 'id' from additional attributes or provides a default.
     /// </summary>
