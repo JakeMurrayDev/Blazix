@@ -1,4 +1,6 @@
-﻿namespace Blazix.Checkbox;
+﻿using System.ComponentModel;
+
+namespace Blazix.Checkbox;
 internal static class CheckedStateExtensions
 {
     /// <summary>
@@ -19,7 +21,7 @@ internal static class CheckedStateExtensions
         CheckedState.Checked => true,
         CheckedState.Unchecked => false,
         CheckedState.Indeterminate => null,
-        _ => throw new ArgumentException($"Invalid CheckedState: {value}")
+        _ => throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(CheckedState))
     };
 
     /// <summary>
@@ -30,7 +32,7 @@ internal static class CheckedStateExtensions
         CheckedState.Checked => "checked",
         CheckedState.Unchecked => "unchecked",
         CheckedState.Indeterminate => "indeterminate",
-        _ => throw new ArgumentException($"Invalid CheckedState: {value}")
+        _ => throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(CheckedState))
     };
 
     /// <summary>
@@ -41,6 +43,6 @@ internal static class CheckedStateExtensions
         CheckedState.Checked => "true",
         CheckedState.Unchecked => "false",
         CheckedState.Indeterminate => "mixed",
-        _ => throw new ArgumentException($"Invalid CheckedState: {value}")
+        _ => throw new InvalidEnumArgumentException(nameof(value), (int)value, typeof(CheckedState))
     };
 }
