@@ -1,0 +1,54 @@
+﻿<div data-orientation="@dataOrientationAttribute"
+     role="@roleAttribute"
+     aria-orientation="@ariaOrientationAttribute"
+     @attributes="AdditionalAttributes"
+     @ref="Element"></div>
+
+@code {
+    private string? dataOrientationAttribute;
+    private string? roleAttribute;
+    private string? ariaOrientationAttribute;
+
+    /// <summary>
+    /// The orientation of the separator.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>
+    /// When <see langword="true" />, signifies that it is purely visual, carries no semantic meaning, and ensures it is not present in the accessibility tree.
+    /// </summary>
+    [Parameter]
+    public bool Decorative { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        dataOrientationAttribute = Orientation.ToDataString();
+
+        if (Decorative)
+        {
+            roleAttribute = "none";
+            ariaOrientationAttribute = null;
+        }
+        else
+        {
+            roleAttribute = "separator";
+            ariaOrientationAttribute = Orientation == Orientation.Vertical ? "vertical" : null;
+        }
+    }
+}
