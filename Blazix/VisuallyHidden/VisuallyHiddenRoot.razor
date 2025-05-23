@@ -1,0 +1,29 @@
+﻿<span @attributes="AdditionalAttributes"
+      style="@Style"
+      @ref="Element">
+    @ChildContent
+</span>
+
+@code {
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    private string? Style => CombineStyles(AdditionalAttributes, "position: absolute; border: 0; width: 1; height: 1; margin: -1; overflow: hidden; clip-path: inset(0 0 0 0); white-space: nowrap; word-wrap: normal;");
+}
