@@ -8,10 +8,8 @@
 
 @inject IJSRuntime JSRuntime
 
-<CascadingValue Value="context"
-                IsFixed="true">
-    <button @ref="buttonElement"
-            type="button"
+<CascadingValue Value="context">
+    <button type="button"
             role="checkbox"
             aria-checked="@(CurrentCheckedState.GetAriaChecked())"
             aria-required="@(Required ? "true" : null)"
@@ -24,14 +22,14 @@
             @onkeydown="HandleKeyDown"
             @onkeydown:preventDefault="keydownPreventDefault"
             @onclick="HandleClick"
-            @onclick:stopPropagation="clickStopPropagation">
+            @onclick:stopPropagation="clickStopPropagation"
+            @ref="buttonElement">
         @ChildContent
     </button>
 
-    @if (isFormControl)
+    @if (IsFormControl)
     {
-        <NullableInputCheckbox @ref="inputCheckbox"
-                               aria-hidden="true"
+        <NullableInputCheckbox aria-hidden="true"
                                name="@Name"
                                ValueAttribute="@ValueAttribute"
                                Value="@CurrentValue"
@@ -41,7 +39,8 @@
                                disabled="@Disabled"
                                required="@Required"
                                tabIndex="-1"
-                               style="transform: translateX(-100%); position: absolute; pointer-events: none; opacity: 0; margin: 0;" />
+                               style="transform: translateX(-100%); position: absolute; pointer-events: none; opacity: 0; margin: 0;"
+                               @ref="inputCheckbox" />
     }
 </CascadingValue>
 
@@ -51,11 +50,9 @@
     private CheckedState internalState = CheckedState.Unchecked;
     private bool keydownPreventDefault;
     private bool clickStopPropagation;
-    private bool isFormControl = false;
     private bool hasConsumerStoppedPropagation = false;
     private ElementReference buttonElement;
     private NullableInputCheckbox? inputCheckbox;
-    private bool previousIsFormControlValue = false;
     private CheckedState initialCheckedState = CheckedState.Unchecked;
     private IJSObjectReference? module;
 
@@ -143,6 +140,7 @@
     public ElementReference? Element { get; private set; }
 
     private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+    private bool IsFormControl => EditContext != null;
     private bool IsControlled => CheckedChanged.HasDelegate;
     private CheckedState CurrentCheckedState => IsControlled ? Checked.ToCheckedState() : internalState;
     private bool? CurrentValue => CurrentCheckedState.ToNullableBool();
@@ -156,8 +154,6 @@
             internalState = initialCheckedState;
         }
         UpdateContext();
-        isFormControl = EditContext != null;
-        previousIsFormControlValue = isFormControl;
     }
 
     /// <inheritdoc />
@@ -173,12 +169,6 @@
             initialCheckedState = Checked.ToCheckedState();
         }
 
-        bool currentIsFormControl = EditContext != null;
-        if (currentIsFormControl != previousIsFormControlValue)
-        {
-            isFormControl = currentIsFormControl;
-            previousIsFormControlValue = isFormControl;
-        }
         UpdateContext();
     }
 
@@ -192,7 +182,7 @@
         }
 
         // Sync size after module is potentially loaded and if needed
-        if (module != null && isFormControl && inputCheckbox?.Element != null)
+        if (module != null && IsFormControl && inputCheckbox?.Element != null)
         {
             await SyncInputSize();
         }
@@ -251,7 +241,7 @@
             UpdateContext();
         }
 
-        if (isFormControl)
+        if (IsFormControl)
         {
             clickStopPropagation = true;
 

@@ -1,10 +1,10 @@
 ﻿@if (IsPresent)
 {
-    <span @ref="Element"
-          data-state="@(Context!.State.GetDataState())"
+    <span data-state="@(Context!.State.GetDataState())"
           data-disabled="@(Context!.Disabled ? string.Empty : null)"
-          style="pointer-events: none; @Style"
-          @attributes="AdditionalAttributes">
+          @attributes="AdditionalAttributes"
+          style="@Style"
+          @ref="Element">
         @ChildContent
     </span>
 }
@@ -39,9 +39,7 @@
     /// </summary>
     public ElementReference? Element { get; private set; }
 
-    // Combine user styles with the default pointer-events: none
-    private string? Style => AdditionalAttributes?.TryGetValue("style", out var styleValue) == true ? styleValue?.ToString() : null;
-
+    private string? Style => CombineStyles(AdditionalAttributes, "pointer-events: none;");
 
     private bool IsPresent => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
 
