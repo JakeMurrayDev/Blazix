@@ -1,0 +1,139 @@
+﻿@using Microsoft.Extensions.Logging
+
+@using static ProgressUtilities
+
+@inject ILogger<ProgressRoot> Logger
+
+<CascadingValue Value="context">
+    <div aria-valuemax="@processedMax"
+         aria-valuemin="0"
+         aria-valuenow="@(processedValue.HasValue? processedValue.Value: null)"
+         aria-valuetext="@valueLabel"
+         role="progressbar"
+         data-state="@currentProgressState.GetDataState()"
+         data-value="@(processedValue.HasValue? processedValue.Value: null)"
+         data-max="@processedMax"
+         @attributes="AdditionalAttributes"
+         @ref="Element">
+        @ChildContent
+    </div>
+</CascadingValue>
+
+@code {
+    private const double DEFAULT_MAX = 100;
+    private ProgressContext context = new(null, DEFAULT_MAX);
+
+    private double? processedValue = null;
+    private double processedMax = DEFAULT_MAX;
+    private string? valueLabel;
+    private ProgressState currentProgressState = ProgressState.Indeterminate;
+
+    /// <summary>
+    /// The current value of the progress bar. Can be null for an indeterminate state.
+    /// </summary>
+    [Parameter]
+    public double? Value { get; set; } = 0;
+
+    /// <summary>
+    /// The maximum value of the progress bar. Must be greater than 0. Defaults to 100.
+    /// </summary>
+    [Parameter]
+    public double? Max { get; set; } = DEFAULT_MAX;
+
+    /// <summary>
+    /// A function to generate a human-readable label for the current value.
+    /// </summary>
+    [Parameter]
+    public Func<double, double, string>? GetValueLabel { get; set; }
+
+    /// <summary>
+    /// Specifies the content to be rendered inside this <see cref="ProgressRoot"/>.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        // Validate and process Max
+        if (Max.HasValue)
+        {
+            if (!IsValidMaxNumber(Max.Value))
+            {
+                Logger.LogWarning("Invalid prop `Max` of value `{PropValue}` supplied to `ProgressRoot`. Only numbers greater than 0 are valid max values. Defaulting to `{DefaultMax}`.", Max.Value, DEFAULT_MAX);
+                processedMax = DEFAULT_MAX;
+            }
+            else
+            {
+                processedMax = Max.Value;
+            }
+        }
+        else
+        {
+            processedMax = DEFAULT_MAX; // Default if Max is not set at all
+        }
+
+        // Validate and process Value
+        if (Value.HasValue)
+        {
+            if (!IsValidValueNumber(Value.Value, processedMax))
+            {
+                Logger.LogWarning("Invalid prop `Value` of value `{PropValue}` supplied to `ProgressRoot`. The `Value` prop must be a positive number, less than or equal to `Max` ({ProcessedMax}), or `null` for indeterminate. Defaulting to `null`.", Value.Value, processedMax);
+                processedValue = null;
+            }
+            else
+            {
+                processedValue = Value.Value;
+            }
+        }
+        else
+        {
+            processedValue = null; // Value is explicitly null or not set
+        }
+
+        // Determine valueLabel
+        var labelProvider = GetValueLabel ?? GetDefaultValueLabel;
+        valueLabel = processedValue.HasValue ? labelProvider(processedValue.Value, processedMax) : null;
+
+        // Determine progress state
+        currentProgressState = GetProgressState(processedValue, processedMax);
+
+        // Update the context
+        context = new ProgressContext(processedValue, processedMax);
+    }
+
+    private static string GetDefaultValueLabel(double value, double max)
+    {
+        if (max == 0) return "0%"; // Avoid division by zero, though IsValidMaxNumber should prevent this
+        return $"{Math.Round((value / max) * 100)}%";
+    }
+
+    private static bool IsNumber(double? value)
+    {
+        return value.HasValue && !double.IsNaN(value.Value) && !double.IsInfinity(value.Value);
+    }
+
+    private static bool IsValidMaxNumber(double max)
+    {
+        return IsNumber(max) && max > 0;
+    }
+
+    private static bool IsValidValueNumber(double value, double max)
+    {
+        return IsNumber(value) && value <= max && value >= 0;
+    }
+}

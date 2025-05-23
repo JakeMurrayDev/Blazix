@@ -1,0 +1,52 @@
+﻿@using static ProgressUtilities
+
+<div data-state="@currentProgressState.GetDataState()"
+     data-value="@(context?.Value.HasValue is true ? context.Value.Value : null)"
+     data-max="@(context?.Max ?? 0)"
+     @attributes="AdditionalAttributes"
+     @ref="Element">
+    @ChildContent
+</div>
+
+@code {
+    private ProgressState currentProgressState = ProgressState.Indeterminate;
+
+    [CascadingParameter]
+    private ProgressContext? context { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    /// <inheritdoc/>
+    protected override void OnParametersSet()
+    {
+        if (context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{GetType().Name}' must be used within a '{nameof(ProgressRoot)}' component that provides a '{nameof(ProgressContext)}'.");
+        }
+
+        // Update local state based on context
+        if (context != null)
+        {
+            currentProgressState = GetProgressState(context.Value, context.Max);
+        }
+    }
+}
