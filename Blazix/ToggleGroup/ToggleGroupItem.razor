@@ -1,0 +1,115 @@
+@using Blazix.FocusGroup
+@using Blazix.Toggle
+
+@typeparam TValue
+
+<FocusGroupItem @ref="focusGroupItem">
+    <ToggleRoot Pressed="IsPressed"
+                PressedChanged="HandlePressedInternalAsync"
+                Disabled="IsActuallyDisabled"
+                @attributes="AdditionalAttributes"
+                id="@Id"
+                @onkeydown="HandleKeyDownAsync"
+                @onfocus="HandleFocus"
+                @onblur="HandleBlur"
+                @ref="toggle">
+        @ChildContent
+    </ToggleRoot>
+</FocusGroupItem>
+
+@code {
+    private readonly string defaultId = $"blx-togglegroupitem-{Guid.NewGuid():N}";
+
+    private FocusGroupItem? focusGroupItem;
+    private ToggleRoot? toggle;
+
+    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+
+    private bool IsPressed
+    {
+        get
+        {
+            if (Context != null && Value != null)
+            {
+                return Context.Multiple ? Context.SelectedValues?.Contains(Value) ?? false : EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+            }
+
+            return false;
+        }
+    }
+
+    private bool IsActuallyDisabled => (Context?.GroupDisabled ?? false) || Disabled;
+
+    [CascadingParameter]
+    private ToggleGroupContext<TValue>? Context { get; set; }
+
+    /// <summary>
+    /// Gets or sets a unique value for the item.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public TValue? Value { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, prevents the user from interacting with the item.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element => toggle?.Element;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{GetType().Name}' must have an ancestor '{nameof(ToggleGroupRoot)}' that provides a '{nameof(ToggleGroupContext<TValue>)}'.");
+        }
+        if (Value is null || Value is string value && string.IsNullOrEmpty(value))
+        {
+            throw new ArgumentException($"Parameter '{nameof(Value)}' cannot be null or empty.", nameof(Value));
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            focusGroupItem?.SetElement(Element);
+        }
+    }
+
+    private Task HandlePressedInternalAsync(bool pressed)
+    {
+        if (Value == null || Context == null || IsActuallyDisabled) return Task.CompletedTask;
+        return Context.OnItemToggled(Value, pressed);
+    }
+
+    private Task HandleKeyDownAsync(KeyboardEventArgs e)
+    {
+        if (Context == null || !Context.RovingFocusEnabled || IsActuallyDisabled) return Task.CompletedTask;
+        return focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
+    }
+
+    private void HandleFocus() => focusGroupItem?.OnItemFocus();
+
+    private void HandleBlur() => focusGroupItem?.OnItemBlur();
+}

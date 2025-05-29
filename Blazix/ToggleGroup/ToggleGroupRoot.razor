@@ -1,0 +1,226 @@
+@using Blazix.FocusGroup
+@using Blazix.Services
+
+@typeparam TValue
+
+@inject IReadingDirectionService readingDirectionService
+
+@{
+    var currentContext = new ToggleGroupContext<TValue>(
+        multiple: Multiple,
+        groupDisabled: Disabled,
+        rovingFocusEnabled: RovingFocus,
+        selectedValue: CurrentValue,
+        selectedValues: CurrentValues?.ToArray(),
+        onItemToggled: HandleItemToggledAsync
+    );
+}
+
+<FocusGroup Orientation="Orientation"
+            ReadingDirection="ReadingDirection"
+            Loop="RovingFocus">
+    <CascadingValue Value="currentContext">
+        <div role="group"
+             dir="@ReadingDirectionDataAttribute"
+             data-orientation="@(RovingFocus? OrientationDataAttribute : null)"
+             @attributes="AdditionalAttributes"
+             @ref="Element">
+            @ChildContent
+        </div>
+    </CascadingValue>
+</FocusGroup>
+
+@code {
+    private bool multipleCached;
+    private TValue? internalValue;
+    private IEnumerable<TValue>? internalValues;
+
+    /// <summary>
+    /// Determines whether a single or multiple items can be pressed at a time.
+    /// </summary>
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    /// <summary>
+    /// The controlled value of the pressed item when <see cref="Multiple"/> is <see langword="false"/>.
+    /// </summary>
+    [Parameter] public TValue? Value { get; set; }
+
+    /// <summary>
+    /// The event callback for the value of the pressed item when <see cref="Multiple"/> is <see langword="false"/>.
+    /// </summary>
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// The value of the pressed item when initially rendered and <see cref="Multiple"/> is <see langword="false"/>.
+    /// <para>
+    /// Use when you do not need to control the state of the items.
+    /// </para>
+    /// </summary>
+    [Parameter] public TValue? DefaultValue { get; set; }
+
+    /// <summary>
+    /// The controlled values of the pressed items when <see cref="Multiple"/> is <see langword="true"/>.
+    /// </summary>
+    [Parameter] public IEnumerable<TValue>? Values { get; set; }
+
+    /// <summary>
+    /// The event callback for the values of the pressed items when <see cref="Multiple"/> is <see langword="true"/>.
+    /// </summary>
+    [Parameter] public EventCallback<IEnumerable<TValue>?> ValuesChanged { get; set; }
+
+    /// <summary>
+    /// The values of the pressed items when initially rendered and <see cref="Multiple"/> is <see langword="true"/>.
+    /// <para>
+    /// Use when you do not need to control the state of the items.
+    /// </para>
+    /// </summary>
+    [Parameter] public IEnumerable<TValue>? DefaultValues { get; set; }
+
+    /// <summary>
+    /// The orientation of the component.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; }
+
+    /// <summary>
+    /// The reading direction of the toggle group.  If omitted, inherits globally from <see cref="ReadingDirectionService"/> or assumes LTR (left-to-right) reading mode.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, prevents the user from interacting with the toggle group and all its items.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// When <see langword="false"/>, navigating through the items using arrow keys will be disabled.
+    /// </summary>
+    [Parameter]
+    public bool RovingFocus { get; set; } = true;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    private bool ControlledSingle => ValueChanged.HasDelegate;
+
+    private bool ControlledMultiple => ValuesChanged.HasDelegate;
+
+    private TValue? CurrentValue => ControlledSingle ? Value : internalValue;
+
+    private IEnumerable<TValue>? CurrentValues => ControlledMultiple ? Values : internalValues;
+
+    private string ReadingDirectionDataAttribute => ReadingDirection == ReadingDirection.Undefined
+        ? readingDirectionService.GetReadingDirection().ToDataAttributeString()
+        : ReadingDirection.ToDataAttributeString();
+
+    private string? OrientationDataAttribute => Orientation != Orientation.Undefined ? Orientation.ToDataAttributeString() : null;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (!ControlledSingle)
+        {
+            internalValue = DefaultValue;
+        }
+        if (!ControlledMultiple)
+        {
+            internalValues = DefaultValues ?? [];
+        }
+        multipleCached = Multiple;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Multiple != multipleCached)
+        {
+            if (!ControlledSingle) internalValue = DefaultValue;
+            else if (ValueChanged.HasDelegate) ValueChanged.InvokeAsync(DefaultValue);
+
+            if (!ControlledMultiple) internalValues = DefaultValues ?? [];
+            else if (ValuesChanged.HasDelegate) ValuesChanged.InvokeAsync(DefaultValues ?? []);
+
+            multipleCached = Multiple;
+        }
+    }
+
+    private Task HandleItemToggledAsync(TValue itemValue, bool pressed)
+    {
+        if (Disabled) return Task.CompletedTask;
+
+        if (Multiple)
+        {
+            var currentSelectedValues = new List<TValue>(CurrentValues ?? []);
+            if (pressed)
+            {
+                if (!currentSelectedValues.Contains(itemValue))
+                {
+                    currentSelectedValues.Add(itemValue);
+                }
+            }
+            else
+            {
+                currentSelectedValues.Remove(itemValue);
+            }
+
+            if (ControlledMultiple)
+            {
+                return ValuesChanged.InvokeAsync(currentSelectedValues);
+            }
+            else
+            {
+                internalValues = currentSelectedValues;
+            }
+        }
+        else // Single
+        {
+            TValue? newValue;
+
+            if (pressed)
+            {
+                newValue = itemValue;
+            }
+            else
+            {
+                newValue = (!EqualityComparer<TValue>.Default.Equals(CurrentValue, itemValue)) ? CurrentValue: default(TValue);
+            }
+
+            if (ControlledSingle)
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(Value, newValue))
+                {
+                    return ValueChanged.InvokeAsync(newValue);
+                }
+            }
+            else
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(internalValue, newValue))
+                {
+                    internalValue = newValue;
+                }
+            }
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+}
