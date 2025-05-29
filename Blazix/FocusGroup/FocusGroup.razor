@@ -1,0 +1,188 @@
+﻿@using System.ComponentModel
+
+<CascadingValue Value="context"
+                IsFixed>
+    @ChildContent
+</CascadingValue>
+
+@code {
+    private FocusGroupContext context = default!;
+
+    private int currentIndex = -1;
+    private readonly List<FocusGroupItem> items = [];
+
+    private static readonly Dictionary<string, FocusIntent> MapKeyToFocusIntent = new()
+    {
+        {"ArrowLeft", FocusIntent.Prev},
+        {"ArrowUp", FocusIntent.Prev},
+        {"ArrowRight", FocusIntent.Next},
+        {"ArrowDown", FocusIntent.Next},
+        {"PageUp", FocusIntent.First},
+        {"Home", FocusIntent.First},
+        {"PageDown", FocusIntent.Last},
+        {"End", FocusIntent.Last}
+    };
+
+    /// <summary>
+    /// Gets or sets the orientation of the focus group. This determines how items are arranged and how keyboard navigation works.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; }
+
+    /// <summary>
+    /// Gets or sets the reading direction of the focus group. Which is used to determine the direction of keyboard navigation.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, keyboard navigation will loop from last item to first, and vice versa.
+    /// </summary>
+    [Parameter]
+    public bool Loop { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        context = new(AddItem, RemoveItem, OnFocusChange, OnKeyDown);
+    }
+
+    /// <summary>
+    /// Adds an item to the focus group.
+    /// </summary>
+    /// <param name="item">The focusable item to add.</param>
+    private void AddItem(FocusGroupItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        items.Add(item);
+        if (currentIndex == -1 && items.Count == 1)
+        {
+            currentIndex = 0;
+        }
+    }
+
+    /// <summary>
+    /// Removes an item from the focus group.
+    /// </summary>
+    /// <param name="item">The focusable item to remove.</param>
+    /// <returns><see langword="true"/> if the item was removed; otherwise, <see langword="false"/>.</returns>
+    private bool RemoveItem(FocusGroupItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        var index = items.IndexOf(item);
+        if (index == -1) return false;
+
+        items.RemoveAt(index);
+
+        if (items.Count == 0)
+        {
+            currentIndex = -1;
+        }
+        else if (index <= currentIndex)
+        {
+            currentIndex = Math.Max(0, currentIndex - 1);
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Updates the current index when an element's focus state changes.
+    /// </summary>
+    /// <param name="item">The element whose focus state changed.</param>
+    private void OnFocusChange(FocusGroupItem item)
+    {
+        ArgumentNullException.ThrowIfNull(item);
+
+        if (!item.Focused) return;
+
+        var index = items.IndexOf(item);
+        if (index > -1)
+        {
+            currentIndex = index;
+        }
+    }
+
+    /// <summary>
+    /// Handles the navigation between items.
+    /// </summary>
+    /// <param name="keyboardEventArgs">The keyboard event arguments.</param>
+    private Task OnKeyDown(KeyboardEventArgs keyboardEventArgs)
+    {
+        if (items.Count == 0) return Task.CompletedTask;
+
+        var intent = GetFocusIntent(keyboardEventArgs);
+        var newIndex = CalculateNewIndex(intent);
+
+        if (newIndex == currentIndex) return Task.CompletedTask;
+
+        currentIndex = newIndex;
+
+        return FocusAsync(currentIndex).AsTask();
+    }
+
+    private int CalculateNewIndex(FocusIntent? intent)
+    {
+        return intent switch
+        {
+            FocusIntent.First => 0,
+            FocusIntent.Last => items.Count - 1,
+            FocusIntent.Next => Loop
+                ? (currentIndex + 1) % items.Count
+                : Math.Min(currentIndex + 1, items.Count - 1),
+            FocusIntent.Prev => Loop
+                ? (currentIndex - 1 + items.Count) % items.Count
+                : Math.Max(currentIndex - 1, 0),
+            null => currentIndex,
+            _ => throw new InvalidEnumArgumentException(nameof(FocusIntent), (int)intent, typeof(FocusIntent))
+        };
+    }
+
+    private string GetDirectionAwareKey(string key)
+    {
+        if (ReadingDirection != ReadingDirection.RightToLeft) return key;
+
+        return key switch
+        {
+            "ArrowLeft" => "ArrowRight",
+            "ArrowRight" => "ArrowLeft",
+            _ => key
+        };
+    }
+
+    private FocusIntent? GetFocusIntent(KeyboardEventArgs e)
+    {
+        var key = GetDirectionAwareKey(e.Key);
+
+        switch (Orientation)
+        {
+            case Orientation.Vertical when key is "ArrowLeft" or "ArrowRight":
+            case Orientation.Horizontal when key is "ArrowUp" or "ArrowDown":
+                return null;
+            case Orientation.Undefined:
+            default:
+                return MapKeyToFocusIntent.TryGetValue(key, out var intent) ? intent : null;
+        }
+    }
+
+    private ValueTask FocusAsync(int index)
+    {
+        if (index < 0 || index >= items.Count)
+            return ValueTask.CompletedTask;
+
+        var component = items[index];
+
+        if (!component.Element.HasValue)
+            throw new InvalidOperationException("The element reference is not valid. Ensure that the element has been rendered before attempting to interact with it.");
+
+        return component.Element.Value.FocusAsync();
+    }
+}
