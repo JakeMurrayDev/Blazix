@@ -131,18 +131,22 @@
 
     private int CalculateNewIndex(FocusIntent? intent)
     {
+        if (items.Count == 0) return -1;
+
+        int resolvedCurrentIndex = currentIndex < 0 ? 0 : currentIndex;
+
         return intent switch
         {
             FocusIntent.First => 0,
             FocusIntent.Last => items.Count - 1,
             FocusIntent.Next => Loop
-                ? (currentIndex + 1) % items.Count
-                : Math.Min(currentIndex + 1, items.Count - 1),
+                ? (resolvedCurrentIndex + 1) % items.Count
+                : Math.Min(resolvedCurrentIndex + 1, items.Count - 1),
             FocusIntent.Prev => Loop
-                ? (currentIndex - 1 + items.Count) % items.Count
-                : Math.Max(currentIndex - 1, 0),
+                ? (resolvedCurrentIndex - 1 + items.Count) % items.Count
+                : Math.Max(resolvedCurrentIndex - 1, 0),
             null => currentIndex,
-            _ => throw new InvalidEnumArgumentException(nameof(FocusIntent), (int)intent, typeof(FocusIntent))
+            _ => throw new InvalidEnumArgumentException(nameof(FocusIntent), (int?)intent ?? -1, typeof(FocusIntent))
         };
     }
 
