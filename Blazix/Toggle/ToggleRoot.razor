@@ -1,0 +1,90 @@
+﻿<button type="button"
+        aria-pressed="@CurrentValue.ToString().ToLowerInvariant()"
+        data-state="@(CurrentValue ? "on" : "off")"
+        data-disabled="@Disabled"
+        disabled="@Disabled"
+        @attributes="AdditionalAttributes"
+        @onclick="HandleClick"
+        @ref="Element">
+    @ChildContent
+</button>
+
+@code {
+    private bool internalPressedState;
+
+    /// <summary>
+    /// The pressed state of the toggle when it is initially rendered. Use when you do not need to control its pressed state.
+    /// Defaults to false.
+    /// </summary>
+    [Parameter]
+    public bool? DefaultPressed { get; set; }
+
+    /// <summary>
+    /// The controlled pressed state of the toggle.
+    /// </summary>
+    [Parameter]
+    public bool Pressed { get; set; }
+
+    /// <summary>
+    /// Event handler called when the pressed state of the toggle changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool> PressedChanged { get; set; }
+
+    /// <summary>
+    /// When <see langword="true" />, prevents the user from interacting with the toggle.
+    /// Defaults to false.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; } = false;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    private bool IsControlled => PressedChanged.HasDelegate;
+    private bool CurrentValue => IsControlled ? Pressed : internalPressedState;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (!IsControlled)
+        {
+            internalPressedState = DefaultPressed ?? false;
+        }
+    }
+
+    private async Task HandleClick()
+    {
+        if (Disabled)
+        {
+            return;
+        }
+
+        if (IsControlled)
+        {
+            await PressedChanged.InvokeAsync(!Pressed);
+        }
+        else
+        {
+            internalPressedState = !internalPressedState;
+            StateHasChanged();
+        }
+    }
+}
