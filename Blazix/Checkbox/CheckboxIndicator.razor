@@ -10,6 +10,10 @@
 }
 
 @code {
+    private string? Style => CombineStyles(AdditionalAttributes, "pointer-events: none;");
+
+    private bool IsPresent => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
+
     [CascadingParameter]
     private CheckboxContext? Context { get; set; }
 
@@ -38,10 +42,6 @@
     /// </para>
     /// </summary>
     public ElementReference? Element { get; private set; }
-
-    private string? Style => CombineStyles(AdditionalAttributes, "pointer-events: none;");
-
-    private bool IsPresent => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
 
     /// <inheritdoc />
     protected override void OnParametersSet()

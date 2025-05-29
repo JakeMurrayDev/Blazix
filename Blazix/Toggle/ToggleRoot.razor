@@ -12,6 +12,9 @@
 @code {
     private bool internalPressedState;
 
+    private bool IsControlled => PressedChanged.HasDelegate;
+    private bool CurrentValue => IsControlled ? Pressed : internalPressedState;
+
     /// <summary>
     /// The pressed state of the toggle when it is initially rendered. Use when you do not need to control its pressed state.
     /// Defaults to false.
@@ -57,9 +60,6 @@
     /// </para>
     /// </summary>
     public ElementReference? Element { get; private set; }
-
-    private bool IsControlled => PressedChanged.HasDelegate;
-    private bool CurrentValue => IsControlled ? Pressed : internalPressedState;
 
     /// <inheritdoc />
     protected override void OnInitialized()

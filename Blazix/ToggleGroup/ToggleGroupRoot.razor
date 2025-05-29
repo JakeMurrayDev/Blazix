@@ -35,6 +35,20 @@
     private TValue? internalValue;
     private IEnumerable<TValue>? internalValues;
 
+    private bool ControlledSingle => ValueChanged.HasDelegate;
+
+    private bool ControlledMultiple => ValuesChanged.HasDelegate;
+
+    private TValue? CurrentValue => ControlledSingle ? Value : internalValue;
+
+    private IEnumerable<TValue>? CurrentValues => ControlledMultiple ? Values : internalValues;
+
+    private string ReadingDirectionDataAttribute => ReadingDirection == ReadingDirection.Undefined
+        ? readingDirectionService.GetReadingDirection().ToDataAttributeString()
+        : ReadingDirection.ToDataAttributeString();
+
+    private string? OrientationDataAttribute => Orientation != Orientation.Undefined ? Orientation.ToDataAttributeString() : null;
+
     /// <summary>
     /// Determines whether a single or multiple items can be pressed at a time.
     /// </summary>
@@ -120,20 +134,6 @@
     /// </para>
     /// </summary>
     public ElementReference? Element { get; private set; }
-
-    private bool ControlledSingle => ValueChanged.HasDelegate;
-
-    private bool ControlledMultiple => ValuesChanged.HasDelegate;
-
-    private TValue? CurrentValue => ControlledSingle ? Value : internalValue;
-
-    private IEnumerable<TValue>? CurrentValues => ControlledMultiple ? Values : internalValues;
-
-    private string ReadingDirectionDataAttribute => ReadingDirection == ReadingDirection.Undefined
-        ? readingDirectionService.GetReadingDirection().ToDataAttributeString()
-        : ReadingDirection.ToDataAttributeString();
-
-    private string? OrientationDataAttribute => Orientation != Orientation.Undefined ? Orientation.ToDataAttributeString() : null;
 
     /// <inheritdoc />
     protected override void OnInitialized()

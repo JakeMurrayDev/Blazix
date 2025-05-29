@@ -45,7 +45,7 @@
 </CascadingValue>
 
 @code {
-    private readonly string defaultId = $"blx-checkbox-{Guid.NewGuid():N}";
+    private readonly string defaultId = $"blx-{Guid.NewGuid():N}";
     private CheckboxContext context = new(CheckedState.Unchecked, false);
     private CheckedState internalState = CheckedState.Unchecked;
     private bool keydownPreventDefault;
@@ -55,6 +55,16 @@
     private NullableInputCheckbox? inputCheckbox;
     private CheckedState initialCheckedState = CheckedState.Unchecked;
     private IJSObjectReference? module;
+
+    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+
+    private bool IsFormControl => EditContext != null;
+
+    private bool IsControlled => CheckedChanged.HasDelegate;
+
+    private CheckedState CurrentCheckedState => IsControlled ? Checked.ToCheckedState() : internalState;
+
+    private bool? CurrentValue => CurrentCheckedState.ToNullableBool();
 
     [CascadingParameter]
     private EditContext? EditContext { get; set; }
@@ -138,12 +148,6 @@
     /// </summary>
     [DisallowNull]
     public ElementReference? Element { get; private set; }
-
-    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
-    private bool IsFormControl => EditContext != null;
-    private bool IsControlled => CheckedChanged.HasDelegate;
-    private CheckedState CurrentCheckedState => IsControlled ? Checked.ToCheckedState() : internalState;
-    private bool? CurrentValue => CurrentCheckedState.ToNullableBool();
 
     /// <inheritdoc />
     protected override void OnInitialized()

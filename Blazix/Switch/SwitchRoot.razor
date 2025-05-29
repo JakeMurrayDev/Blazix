@@ -40,7 +40,7 @@
 </CascadingValue>
 
 @code {
-    private readonly string defaultId = $"blx-switch-{Guid.NewGuid():N}";
+    private readonly string defaultId = $"blx-{Guid.NewGuid():N}";
     private SwitchContext context = new(false, false);
     private bool internalCheckedState = false;
     private bool clickStopPropagation;
@@ -48,6 +48,14 @@
     private ElementReference buttonElement;
     private InputCheckbox? inputCheckbox;
     private IJSObjectReference? module;
+
+    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+
+    private bool IsFormControl => EditContext != null;
+
+    private bool IsControlled => CheckedChanged.HasDelegate;
+
+    private bool CurrentValue => IsControlled ? Checked : internalCheckedState;
 
     [CascadingParameter]
     private EditContext? EditContext { get; set; }
@@ -130,11 +138,6 @@
     /// </para>
     /// </summary>
     public ElementReference? Element => buttonElement;
-
-    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
-    private bool IsFormControl => EditContext != null;
-    private bool IsControlled => CheckedChanged.HasDelegate;
-    private bool CurrentValue => IsControlled ? Checked : internalCheckedState;
 
     /// <inheritdoc />
     protected override void OnInitialized()

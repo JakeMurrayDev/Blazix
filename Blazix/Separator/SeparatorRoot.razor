@@ -1,13 +1,13 @@
-﻿<div data-orientation="@dataOrientationAttribute"
-     role="@roleAttribute"
+﻿<div role="@roleAttribute"
      aria-orientation="@ariaOrientationAttribute"
+     data-orientation="@dataOrientationAttribute"
      @attributes="AdditionalAttributes"
      @ref="Element"></div>
 
 @code {
-    private string? dataOrientationAttribute;
     private string? roleAttribute;
     private string? ariaOrientationAttribute;
+    private string? dataOrientationAttribute;
 
     /// <summary>
     /// The orientation of the separator.
