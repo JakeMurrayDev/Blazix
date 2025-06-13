@@ -1,0 +1,214 @@
+﻿@using Microsoft.JSInterop
+@using System.Text
+@using static AttributeUtilities
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+@if (IsPresent)
+{
+    <div data-state="@(Context?.IsOpen == true ? "open" : "closed")"
+         data-disabled="@(Context?.IsDisabled == true ? string.Empty : null)"
+         hidden="@(!IsVisibleInDom)"
+         @attributes="AdditionalAttributes"
+         id="@effectiveId"
+         style="@CombineStyles(AdditionalAttributes, currentStyle)"
+         @ref="Element">
+        @if (IsVisibleInDom)
+        {
+            @ChildContent
+        }
+    </div>
+}
+
+@code {
+    private string? effectiveId;
+    private string? currentStyle;
+    private DotNetObjectReference<CollapsibleContent>? dotNetObjectReference;
+    private IJSObjectReference? module;
+    private bool hasBeenObserved;
+    private double? lastKnownWidth;
+    private double? lastKnownHeight;
+
+    private bool IsVisibleInDom => Context?.IsOpen == true;
+
+    private bool IsPresent => ForceMount || IsVisibleInDom;
+
+    [CascadingParameter]
+    private CollapsibleContext? Context { get; set; }
+
+    /// <summary>
+    /// Used to force mounting when more control is needed. Useful when controlling animations.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// </summary>
+    public ElementReference? Element { get; private set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        dotNetObjectReference = DotNetObjectReference.Create(this);
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{GetType().Name}' must have an ancestor '{nameof(CollapsibleRoot)}' that provides a '{nameof(CollapsibleContext)}'.");
+        }
+
+        // Determine the effective ID for this content panel
+        string? userProvidedId = null;
+        if (AdditionalAttributes?.TryGetValue("id", out var idAttrObj) == true && idAttrObj is string idStr)
+        {
+            userProvidedId = idStr;
+        }
+
+        var idToUse = userProvidedId ?? Context.GetEffectiveContentId();
+
+        if (effectiveId != idToUse)
+        {
+            effectiveId = idToUse;
+        }
+
+        Context.ReportEffectiveContentId(effectiveId);
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            module = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Blazix/blazix-collapsible.js");
+        }
+
+        if (module != null && IsPresent && Element.HasValue && !hasBeenObserved)
+        {
+            await ObserveElementDimensionsAsync();
+        }
+        else if (module != null && !IsPresent && Element.HasValue && hasBeenObserved)
+        {
+            await UnobserveElementDimensionsAsync();
+        }
+
+        // Re-evaluate style
+        if (IsPresent && Element.HasValue)
+        {
+            UpdateStyleAsync();
+        }
+        else
+        {
+            ClearStyle();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        dotNetObjectReference?.Dispose();
+
+        if (module != null)
+        {
+            try
+            {
+                if (Element.HasValue && hasBeenObserved)
+                {
+                    await module.InvokeVoidAsync("disposeObserverForElement", Element.Value);
+                }
+                await module.DisposeAsync();
+            }
+            catch (JSDisconnectedException) { /* Swallow */ }
+            catch (TaskCanceledException) { /* Swallow */ }
+
+            module = null;
+        }
+    }
+
+    private async Task ObserveElementDimensionsAsync()
+    {
+        if (module != null && Element.HasValue && dotNetObjectReference != null)
+        {
+            var initialSize = await module.InvokeAsync<(double Width, double Height)>("observeCollapsibleContent",
+                    Element.Value,
+                    dotNetObjectReference,
+                    "--blazix-collapsible-content-width",
+                    "--blazix-collapsible-content-height"
+                );
+            lastKnownWidth = initialSize.Width;
+            lastKnownHeight = initialSize.Height;
+            hasBeenObserved = true;
+            UpdateStyleAsync();
+        }
+    }
+
+    private async Task UnobserveElementDimensionsAsync()
+    {
+        if (module != null && Element.HasValue && hasBeenObserved)
+        {
+            await module.InvokeVoidAsync("unobserveCollapsibleContent", Element.Value);
+            hasBeenObserved = false;
+            lastKnownWidth = null;
+            lastKnownHeight = null;
+            ClearStyle();
+        }
+    }
+
+    /// <summary>
+    /// Called by JavaScript when the element's size changes.
+    /// </summary>
+    [JSInvokable]
+    public async Task OnResizeOccurred(double width, double height)
+    {
+        bool changed = lastKnownWidth != width || lastKnownHeight != height;
+        lastKnownWidth = width;
+        lastKnownHeight = height;
+
+        if (changed)
+        {
+            UpdateStyleAsync();
+            await InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private void UpdateStyleAsync()
+    {
+        var styleBuilder = new StringBuilder();
+        if (IsVisibleInDom)
+        {
+            if (lastKnownWidth.HasValue)
+            {
+                styleBuilder.Append($"--blazix-collapsible-content-width: {lastKnownWidth.Value}px;");
+            }
+            if (lastKnownHeight.HasValue)
+            {
+                styleBuilder.Append($"--blazix-collapsible-content-height: {lastKnownHeight.Value}px;");
+            }
+        }
+        currentStyle = styleBuilder.Length > 0 ? styleBuilder.ToString() : null;
+    }
+
+    private void ClearStyle()
+    {
+        currentStyle = null;
+    }
+}
