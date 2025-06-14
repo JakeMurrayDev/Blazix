@@ -8,6 +8,8 @@
                         data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
                         @attributes="AdditionalAttributes"
                         @onkeydown="HandleKeyDown"
+                        @onfocus="HandleFocus"
+                        @onblur="HandleBlur"
                         @ref="collapsibleTrigger">
         @ChildContent
     </CollapsibleTrigger>
@@ -70,4 +72,8 @@
     }
 
     private Task HandleKeyDown(KeyboardEventArgs e) => focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
+
+    private void HandleFocus() => focusGroupItem?.Focus();
+
+    private void HandleBlur() => focusGroupItem?.Blur();
 }

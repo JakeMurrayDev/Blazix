@@ -109,7 +109,7 @@
         return focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
     }
 
-    private void HandleFocus() => focusGroupItem?.OnItemFocus();
+    private void HandleFocus() => focusGroupItem?.Focus();
 
-    private void HandleBlur() => focusGroupItem?.OnItemBlur();
+    private void HandleBlur() => focusGroupItem?.Blur();
 }

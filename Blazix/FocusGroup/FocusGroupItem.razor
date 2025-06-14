@@ -68,24 +68,36 @@
     }
 
     /// <summary>
-    /// Sets the <see cref="ElementReference"/> to be focused.
+    /// Sets the <see cref="ElementReference"/> to be focused on.
+    /// <para>
+    /// This method is required to be called on the first render of the <c>OnAfterRender</c> lifecycle method.
+    /// </para>
     /// </summary>
     /// <param name="element">The <see cref="ElementReference"/> to be focused.</param>
     public void SetElement(ElementReference? element) => Element = element;
 
     /// <summary>
     /// Handles the navigation between items.
+    /// <para>
+    /// This method is required to be called in <c>onkeydown</c> event.
+    /// </para>
     /// </summary>
     /// <param name="e">The keyboard event arguments.</param>
     public Task OnKeyDown(KeyboardEventArgs e) => Context?.OnKeyDown(e) ?? Task.CompletedTask;
 
     /// <summary>
-    /// Handles the focus event.
+    /// Focuses the item, setting <see cref="Focused"/> to <see langword="true"/>.
+    /// <para>
+    /// This method is required to be called in <c>onfocus</c> event.
+    /// </para>
     /// </summary>
-    public void OnItemFocus() => Focused = true;
+    public void Focus() => Focused = true;
 
     /// <summary>
-    /// Handles the blur event.
+    /// Blurs the item, setting <see cref="Focused"/> to <see langword="false"/>.
+    /// <para>
+    /// This method is required to be called in <c>onblur</c> event.
+    /// </para>
     /// </summary>
-    public void OnItemBlur() => Focused = false;
+    public void Blur() => Focused = false;
 }
