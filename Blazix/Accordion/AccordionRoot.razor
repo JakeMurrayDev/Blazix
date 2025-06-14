@@ -1,0 +1,219 @@
+﻿@using Blazix.FocusGroup
+@using System.Diagnostics.CodeAnalysis
+
+@typeparam TValue
+
+@{
+    var accordionContext = new AccordionContext<TValue>(
+        multiple: Multiple,
+        groupOrientation: Orientation,
+        isCollapsible: Collapsible,
+        isGroupDisabled: Disabled,
+        selectedValue: CurrentValue,
+        selectedValues: CurrentValues?.ToArray(),
+        onItemToggle: HandleItemToggleAsync
+    );
+}
+
+<FocusGroup Orientation="Orientation"
+            ReadingDirection="ReadingDirection"
+            Loop="true">
+    <CascadingValue Value="accordionContext">
+        <div data-orientation="@Orientation.ToDataAttributeString()"
+             @attributes="AdditionalAttributes"
+             @ref="Element">
+            @ChildContent
+        </div>
+    </CascadingValue>
+</FocusGroup>
+
+@code {
+    private bool multipleCached;
+    private TValue? internalValue;
+    private IEnumerable<TValue>? internalValues;
+
+    private bool IsControlledSingle => ValueChanged.HasDelegate;
+    private bool IsControlledMultiple => ValuesChanged.HasDelegate;
+    private TValue? CurrentValue => IsControlledSingle ? Value : internalValue;
+    private IEnumerable<TValue>? CurrentValues => IsControlledMultiple ? Values : internalValues;
+
+    /// <summary>
+    /// Determines whether one or multiple items can be opened at the same time.
+    /// </summary>
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    /// <summary>
+    /// The controlled value of the item to expand when <see cref="Multiple"/> is <see langword="false"/>.
+    /// </summary>
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    /// <summary>
+    /// The value of the item to expand when initially rendered.
+    /// </summary>
+    [Parameter]
+    public TValue? DefaultValue { get; set; }
+
+    /// <summary>
+    /// Event handler called when the expanded state of an item changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// The controlled value of the items to expand when <see cref="Multiple"/> is <see langword="true"/>.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<TValue>? Values { get; set; }
+
+    /// <summary>
+    /// The value/s of the item/s to expand when initially rendered.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<TValue>? DefaultValues { get; set; }
+
+    /// <summary>
+    /// Event handler called when the expanded state of an item changes
+    /// </summary>
+    [Parameter]
+    public EventCallback<IEnumerable<TValue>?> ValuesChanged { get; set; }
+
+    /// <summary>
+    /// The orientation of the component.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Vertical;
+
+    /// <summary>
+    /// The reading direction of the navigation.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// Determines whether the content can be collapsed.
+    /// <para>
+    /// If <see langword="false"/> and <see cref="Multiple"/> is also set to <see langword="false"/>, the opened item will be unable to be closed.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public bool Collapsible { get; set; } = true;
+
+    /// <summary>
+    /// Determines whether the user can interact with the component.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (!IsControlledSingle)
+        {
+            internalValue = DefaultValue;
+        }
+        if (!IsControlledMultiple)
+        {
+            internalValues = DefaultValues;
+        }
+        multipleCached = Multiple;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Multiple != multipleCached)
+        {
+            if (!IsControlledSingle) internalValue = (TValue?)(object?)DefaultValue;
+            if (!IsControlledMultiple) internalValues = DefaultValues;
+            multipleCached = Multiple;
+        }
+    }
+
+    private Task HandleItemToggleAsync(TValue itemValue)
+    {
+        if (Multiple)
+        {
+            return HandleMultipleSelection(itemValue);
+        }
+
+        return HandleSingleSelection(itemValue);
+    }
+
+    private Task HandleMultipleSelection(TValue itemValue)
+    {
+        var currentSelected = new List<TValue>(CurrentValues ?? Enumerable.Empty<TValue>());
+        if (currentSelected.Contains(itemValue))
+        {
+            currentSelected.Remove(itemValue);
+        }
+        else
+        {
+            currentSelected.Add(itemValue);
+        }
+
+        if (IsControlledMultiple)
+        {
+            return ValuesChanged.InvokeAsync(currentSelected);
+        }
+        else
+        {
+            internalValues = currentSelected;
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+
+    private Task HandleSingleSelection(TValue itemValue)
+    {
+        TValue? newValue;
+        bool isCurrentlyOpen = EqualityComparer<TValue>.Default.Equals(CurrentValue, itemValue);
+
+        if (isCurrentlyOpen && Collapsible)
+        {
+            newValue = default; // Collapse if collapsible
+        }
+        else
+        {
+            newValue = itemValue; // Open the new one (or re-open if not collapsible)
+        }
+
+        if (IsControlledSingle)
+        {
+            if (!EqualityComparer<TValue>.Default.Equals(Value, newValue))
+            {
+                return ValueChanged.InvokeAsync(newValue);
+            }
+        }
+        else
+        {
+            internalValue = newValue;
+            StateHasChanged();
+        }
+
+        return Task.CompletedTask;
+    }
+}

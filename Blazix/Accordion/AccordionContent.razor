@@ -1,0 +1,60 @@
+@using Blazix.Collapsible
+@using System.Diagnostics.CodeAnalysis
+
+<CollapsibleContent role="region"
+                    aria-labelledby="@ItemContext?.TriggerId"
+                    data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
+                    @attributes="AdditionalAttributes"
+                    style="@CombinedStyle"
+                    @ref="collapsibleContent">
+    @ChildContent
+</CollapsibleContent>
+
+@code {
+    private const string AccordionStyle = "--blazix-accordion-content-height: var(--blazix-collapsible-content-height); --blazix-accordion-content-width: var(--blazix-collapsible-content-width);";
+
+    private ElementReference? element;
+    private CollapsibleContent? collapsibleContent;
+
+    private string? CombinedStyle => CombineStyles(AdditionalAttributes, AccordionStyle);
+
+    [CascadingParameter]
+    private AccordionContext<string>? AccordionContext { get; set; } // Assuming string for now
+
+    [CascadingParameter]
+    private AccordionItemContext? ItemContext { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element
+    {
+        get => element ?? collapsibleContent?.Element;
+        protected set => element = value;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (ItemContext is null || AccordionContext is null)
+        {
+            throw new InvalidOperationException($"'{nameof(AccordionContent)}' must be used within an '{nameof(__Blazor.Blazix.Accordion.AccordionItem)}'.");
+        }
+    }
+}

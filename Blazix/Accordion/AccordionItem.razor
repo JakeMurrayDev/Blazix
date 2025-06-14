@@ -1,0 +1,99 @@
+@using Blazix.Collapsible
+@using System.Diagnostics.CodeAnalysis
+
+@typeparam TValue
+
+@{
+    bool isOpen = false;
+    bool isGroupDisabled = false;
+
+    if (AccordionContext != null)
+    {
+        isOpen = AccordionContext.Multiple
+            ? AccordionContext.SelectedValues.Contains(Value)
+            : EqualityComparer<TValue>.Default.Equals(AccordionContext.SelectedValue, Value);
+        isGroupDisabled = AccordionContext.IsGroupDisabled;
+    }
+
+    bool actualItemDisabled = isGroupDisabled || Disabled;
+
+    var itemContext = new AccordionItemContext(
+        triggerId: TriggerId,
+        isOpen: isOpen,
+        isDisabled: actualItemDisabled
+    );
+}
+
+<CascadingValue Value="itemContext">
+    <CollapsibleRoot Open="@isOpen"
+                     OpenChanged="@HandleOpenChange"
+                     Disabled="@actualItemDisabled"
+                     data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
+                     data-state="@(isOpen ? "open" : "closed")"
+                     @attributes="AdditionalAttributes"
+                     @ref="collapsibleRoot">
+        @ChildContent
+    </CollapsibleRoot>
+</CascadingValue>
+
+@code {
+    private readonly string TriggerId = $"blx-{Guid.NewGuid():N}";
+
+    private ElementReference? element;
+    private CollapsibleRoot? collapsibleRoot;
+
+    [CascadingParameter]
+    private AccordionContext<TValue>? AccordionContext { get; set; }
+
+    [Parameter, EditorRequired]
+    public TValue Value { get; set; } = default!;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element
+    {
+        get => element ?? collapsibleRoot?.Element;
+        protected set => element = value;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (AccordionContext is null)
+        {
+            throw new InvalidOperationException($"'{nameof(AccordionItem<TValue>)}' must be used within an '{nameof(AccordionRoot<TValue>)}'.");
+        }
+        if (Value == null)
+        {
+            throw new ArgumentException($"Parameter '{nameof(Value)}' cannot be null.", nameof(Value));
+        }
+    }
+
+    private async Task HandleOpenChange(bool open)
+    {
+        if (AccordionContext != null)
+        {
+            await AccordionContext.OnItemToggle(Value);
+        }
+    }
+}
