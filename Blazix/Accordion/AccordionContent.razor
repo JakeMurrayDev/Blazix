@@ -1,7 +1,8 @@
 @using Blazix.Collapsible
 @using System.Diagnostics.CodeAnalysis
 
-<CollapsibleContent role="region"
+<CollapsibleContent ForceMount="ForceMount"
+                    role="region"
                     aria-labelledby="@ItemContext?.TriggerId"
                     data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
                     @attributes="AdditionalAttributes"
@@ -23,6 +24,12 @@
 
     [CascadingParameter]
     private AccordionItemContext? ItemContext { get; set; }
+
+    /// <summary>
+    /// Used to force mounting when more control is needed. Useful when controlling animations.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
 
     /// <summary>
     /// Defines the child components of this instance.
