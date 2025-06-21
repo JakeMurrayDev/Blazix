@@ -1,39 +1,37 @@
-﻿@using Microsoft.JSInterop
+﻿@using Blazix.Presence
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
 @using System.Text
+@using System.Globalization
+@using System.Diagnostics.CodeAnalysis
 @using static AttributeUtilities
 
 @implements IAsyncDisposable
-
 @inject IJSRuntime JSRuntime
+@inject ILogger<CollapsibleContent> Logger
 
-@if (IsPresent)
-{
-    <div data-state="@(Context?.IsOpen == true ? "open" : "closed")"
-         data-disabled="@(Context?.IsDisabled == true ? string.Empty : null)"
-         hidden="@(!IsVisibleInDom)"
-         @attributes="AdditionalAttributes"
-         id="@effectiveId"
-         style="@CombineStyles(AdditionalAttributes, currentStyle)"
-         @ref="Element">
-        @if (IsVisibleInDom)
-        {
-            @ChildContent
-        }
-    </div>
-}
+<Presence Present="@(Context?.IsOpen == true || ForceMount)"
+          data-state="@(Context?.IsOpen == true ? "open" : "closed")"
+          data-disabled="@(Context?.IsDisabled == true ? string.Empty : null)"
+          id="@effectiveId"
+          @attributes="AdditionalAttributes"
+          style="@GetElementStyle()"
+          @ref="presenceComponent">
+    @ChildContent
+</Presence>
 
 @code {
+    private sealed record ElementSize(double? Height, double? Width);
+
+    private Presence? presenceComponent;
+    private ElementReference? element;
     private string? effectiveId;
-    private string? currentStyle;
     private DotNetObjectReference<CollapsibleContent>? dotNetObjectReference;
     private IJSObjectReference? module;
-    private bool hasBeenObserved;
-    private double? lastKnownWidth;
-    private double? lastKnownHeight;
-
-    private bool IsVisibleInDom => Context?.IsOpen == true;
-
-    private bool IsPresent => ForceMount || IsVisibleInDom;
+    private double rAF;
+    private bool isMountAnimationPrevented;
+    private double? height;
+    private double? width;
 
     [CascadingParameter]
     private CollapsibleContext? Context { get; set; }
@@ -58,13 +56,22 @@
 
     /// <summary>
     /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
     /// </summary>
-    public ElementReference? Element { get; private set; }
+    [DisallowNull]
+    public ElementReference? Element
+    {
+        get => element ?? presenceComponent?.Element;
+        protected set => element = value;
+    }
 
     /// <inheritdoc />
     protected override void OnInitialized()
     {
         dotNetObjectReference = DotNetObjectReference.Create(this);
+        isMountAnimationPrevented = Context?.IsOpen == true;
     }
 
     /// <inheritdoc />
@@ -73,24 +80,10 @@
         if (Context is null)
         {
             throw new InvalidOperationException(
-                $"'{GetType().Name}' must have an ancestor '{nameof(CollapsibleRoot)}' that provides a '{nameof(CollapsibleContext)}'.");
+                $"'{nameof(CollapsibleContent)}' must have an ancestor '{nameof(CollapsibleRoot)}' that provides a '{nameof(CollapsibleContext)}'.");
         }
 
-        // Determine the effective ID for this content panel
-        string? userProvidedId = null;
-        if (AdditionalAttributes?.TryGetValue("id", out var idAttrObj) == true && idAttrObj is string idStr)
-        {
-            userProvidedId = idStr;
-        }
-
-        var idToUse = userProvidedId ?? Context.GetEffectiveContentId();
-
-        if (effectiveId != idToUse)
-        {
-            effectiveId = idToUse;
-        }
-
-        Context.ReportEffectiveContentId(effectiveId);
+        CheckEffectiveId();
     }
 
     /// <inheritdoc />
@@ -98,27 +91,44 @@
     {
         if (firstRender)
         {
-            module = await JSRuntime.InvokeAsync<IJSObjectReference>(
+            try
+            {
+                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
                     "import", "./_content/Blazix/blazix-collapsible.js");
+
+                if (module != null)
+                {
+                    rAF = await module.InvokeAsync<double>("scheduleAnimationFrame", dotNetObjectReference);
+                }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error importing blazix-collapsible.js module: {ErrorMessage}", ex.Message);
+            }
         }
 
-        if (module != null && IsPresent && Element.HasValue && !hasBeenObserved)
+        if (module != null && Element.HasValue && Context?.IsOpen == true)
         {
-            await ObserveElementDimensionsAsync();
-        }
-        else if (module != null && !IsPresent && Element.HasValue && hasBeenObserved)
-        {
-            await UnobserveElementDimensionsAsync();
-        }
+            var result = await module.InvokeAsync<ElementSize>("updateCollapsibleContentSize",
+                Element, isMountAnimationPrevented);
 
-        // Re-evaluate style
-        if (IsPresent && Element.HasValue)
-        {
-            UpdateStyleAsync();
-        }
-        else
-        {
-            ClearStyle();
+            var hasChanged = false;
+            if (height != result.Height)
+            {
+                height = result.Height > 0 ? result.Height : null;
+                hasChanged = true;
+            }
+            if (width != result.Width)
+            {
+                width = result.Width > 0 ? result.Width : null;
+                hasChanged = true;
+            }
+
+            if (hasChanged)
+            {
+                StateHasChanged();
+            }
         }
     }
 
@@ -131,84 +141,45 @@
         {
             try
             {
-                if (Element.HasValue && hasBeenObserved)
-                {
-                    await module.InvokeVoidAsync("disposeObserverForElement", Element.Value);
-                }
+                await module.InvokeVoidAsync("cancelScheduledAnimationFrame", rAF);
                 await module.DisposeAsync();
             }
-            catch (JSDisconnectedException) { /* Swallow */ }
-            catch (TaskCanceledException) { /* Swallow */ }
-
-            module = null;
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { }
         }
     }
 
-    private async Task ObserveElementDimensionsAsync()
-    {
-        if (module != null && Element.HasValue && dotNetObjectReference != null)
-        {
-            var initialSize = await module.InvokeAsync<(double Width, double Height)>("observeCollapsibleContent",
-                    Element.Value,
-                    dotNetObjectReference,
-                    "--blazix-collapsible-content-width",
-                    "--blazix-collapsible-content-height"
-                );
-            lastKnownWidth = initialSize.Width;
-            lastKnownHeight = initialSize.Height;
-            hasBeenObserved = true;
-            UpdateStyleAsync();
-        }
-    }
-
-    private async Task UnobserveElementDimensionsAsync()
-    {
-        if (module != null && Element.HasValue && hasBeenObserved)
-        {
-            await module.InvokeVoidAsync("unobserveCollapsibleContent", Element.Value);
-            hasBeenObserved = false;
-            lastKnownWidth = null;
-            lastKnownHeight = null;
-            ClearStyle();
-        }
-    }
-
-    /// <summary>
-    /// Called by JavaScript when the element's size changes.
-    /// </summary>
     [JSInvokable]
-    public async Task OnResizeOccurred(double width, double height)
+    public void SetMountAnimationPrevented()
     {
-        bool changed = lastKnownWidth != width || lastKnownHeight != height;
-        lastKnownWidth = width;
-        lastKnownHeight = height;
-
-        if (changed)
-        {
-            UpdateStyleAsync();
-            await InvokeAsync(StateHasChanged);
-        }
+        isMountAnimationPrevented = false;
     }
 
-    private void UpdateStyleAsync()
+    private string? GetElementStyle()
     {
-        var styleBuilder = new StringBuilder();
-        if (IsVisibleInDom)
-        {
-            if (lastKnownWidth.HasValue)
-            {
-                styleBuilder.Append($"--blazix-collapsible-content-width: {lastKnownWidth.Value}px;");
-            }
-            if (lastKnownHeight.HasValue)
-            {
-                styleBuilder.Append($"--blazix-collapsible-content-height: {lastKnownHeight.Value}px;");
-            }
-        }
-        currentStyle = styleBuilder.Length > 0 ? styleBuilder.ToString() : null;
+        var styles = new StringBuilder();
+
+        if (height.HasValue)
+            styles.Append($"--blazix-collapsible-content-height: {height.Value}px;");
+        if (width.HasValue)
+            styles.Append($"--blazix-collapsible-content-width: {width.Value}px;");
+
+        return CombineStyles(AdditionalAttributes, styles.ToString());
     }
 
-    private void ClearStyle()
+    private void CheckEffectiveId()
     {
-        currentStyle = null;
+        string? userProvidedId = null;
+        if (AdditionalAttributes?.TryGetValue("id", out var idAttrObj) == true && idAttrObj is string idStr)
+        {
+            userProvidedId = idStr;
+        }
+
+        var idToUse = userProvidedId ?? Context?.GetEffectiveContentId();
+        if (effectiveId != idToUse)
+        {
+            effectiveId = idToUse;
+        }
+
+        Context?.ReportEffectiveContentId(effectiveId);
     }
 }
