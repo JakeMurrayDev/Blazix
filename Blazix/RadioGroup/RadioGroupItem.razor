@@ -1,0 +1,190 @@
+﻿@using Blazix.FocusGroup
+@using Microsoft.AspNetCore.Components.Web
+@using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
+@using System.Diagnostics.CodeAnalysis
+
+@typeparam TValue
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+@inject ILogger<RadioGroupItem<TValue>> Logger
+
+@{
+    bool isChecked = false;
+    bool isGroupDisabled = false;
+    string? groupName = null;
+    bool isRequired = false;
+
+    if (Context != null)
+    {
+        isChecked = EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+        isGroupDisabled = Context.IsGroupDisabled;
+        groupName = Context.Name;
+        isRequired = Context.Required;
+    }
+
+    bool actualItemDisabled = isGroupDisabled || Disabled;
+    var itemContext = new RadioGroupItemContext(isChecked, actualItemDisabled);
+}
+
+<FocusGroupItem @ref="focusGroupItem">
+    <CascadingValue Value="itemContext" IsFixed="false">
+        <button type="button"
+                role="radio"
+                aria-checked="@isChecked.ToString().ToLowerInvariant()"
+                data-state="@(isChecked ? "checked" : "unchecked")"
+                data-disabled="@(actualItemDisabled ? string.Empty : null)"
+                disabled="@actualItemDisabled"
+                value="@(Value is not null ? BindConverter.FormatValue(Value.ToString()) : null)"
+                @attributes="AdditionalAttributes"
+                @onclick="HandleClick"
+                @onclick:stopPropagation="IsFormControl"
+                @onkeydown="HandleKeyDown"
+                @onkeydown:preventDefault="preventDefaultKeyDown"
+                @onfocus="HandleFocus"
+                @onblur="HandleBlur"
+                @ref="Element">
+            @ChildContent
+        </button>
+    </CascadingValue>
+</FocusGroupItem>
+
+@if (IsFormControl)
+{
+    <InputRadio TValue="TValue"
+                @ref="inputRadio"
+                aria-hidden="true"
+                name="@groupName"
+                Value="@Value"
+                disabled="@actualItemDisabled"
+                required="@isRequired"
+                tabindex="-1"
+                style="transform: translateX(-100%); position: absolute; pointer-events: none; opacity: 0; margin: 0;" />
+}
+
+@code {
+    private readonly string instanceId = $"blx-{Guid.NewGuid():N}";
+    private bool preventDefaultKeyDown;
+    private FocusGroupItem? focusGroupItem;
+    private InputRadio<TValue>? inputRadio;
+    private IJSObjectReference? module;
+
+    private bool IsFormControl => EditContext != null;
+
+    [CascadingParameter]
+    private EditContext? EditContext { get; set; }
+
+    [CascadingParameter]
+    private RadioGroupContext<TValue>? Context { get; set; }
+
+    [Parameter, EditorRequired]
+    public TValue Value { get; set; } = default!;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(RadioGroupItem<TValue>)}' must be used within a '{nameof(RadioGroupRoot<TValue>)}' component that provides a '{nameof(RadioGroupContext<TValue>)}'.");
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            focusGroupItem?.SetElement(Element);
+            try
+            {
+                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import", "./_content/Blazix/blazix-radiogroup.js");
+
+                await module.InvokeVoidAsync("addArrowKeyListeners");
+            }
+            catch (Exception ex)
+            {
+                Logger.LogError("Error importing blazix-radiogroup.js: {ErrorMessage}", ex.Message);
+            }
+        }
+
+        if (module != null && IsFormControl && Element.HasValue && inputRadio?.Element != null)
+        {
+            await module.InvokeVoidAsync("syncInputSize", Element.Value, inputRadio.Element.Value);
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (module != null)
+        {
+            try
+            {
+                await module.InvokeVoidAsync("removeArrowKeyListeners");
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */}
+            module = null;
+        }
+    }
+
+    private async Task HandleClick()
+    {
+        if (Context is null) return;
+
+        bool isChecked = EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+        bool actualItemDisabled = Context.IsGroupDisabled || Disabled;
+
+        if (actualItemDisabled) return;
+
+        if (!isChecked)
+        {
+            await Context.OnValueChange(Value);
+        }
+
+        if (IsFormControl && module != null && inputRadio?.Element != null)
+        {
+            await module.InvokeVoidAsync("triggerClick", inputRadio.Element.Value);
+        }
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        preventDefaultKeyDown = e.Key == "Enter";
+
+        return focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
+    }
+
+    private async Task HandleFocus()
+    {
+        if (module is null) return;
+
+        focusGroupItem?.Focus();
+
+        bool isArrowKeyPressed = await module.InvokeAsync<bool>("isArrowKeyPressed");
+
+        if (isArrowKeyPressed)
+        {
+            await HandleClick();
+        }
+    }
+
+    private void HandleBlur() => focusGroupItem?.Blur();
+}

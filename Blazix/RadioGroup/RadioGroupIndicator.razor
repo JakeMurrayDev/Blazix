@@ -1,0 +1,49 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.Presence
+
+<Presence As="span"
+          Present="Present"
+          data-state="@(Context?.Checked == true ? "checked" : "unchecked")"
+          data-disabled="@(Context?.Disabled == true)"
+          @attributes="AdditionalAttributes"
+          @ref="presenceComponent">
+    @ChildContent
+</Presence>
+
+@code {
+    private Presence? presenceComponent;
+    private ElementReference? element;
+
+    private bool Present => ForceMount || Context?.Checked == true;
+
+    [CascadingParameter]
+    private RadioGroupItemContext? Context { get; set; }
+
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element
+    {
+        get => element ?? presenceComponent?.Element;
+        protected set => element = value;
+    }
+
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(RadioGroupItemContext)}' must be used within a '{nameof(__Blazor.Blazix.RadioGroup.RadioGroupItem)}' component that provides a '{nameof(RadioGroupItemContext)}'.");
+        }
+    }
+}

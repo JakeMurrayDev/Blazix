@@ -1,0 +1,100 @@
+﻿@using Blazix.FocusGroup
+@using System.Diagnostics.CodeAnalysis
+@using Microsoft.AspNetCore.Components.Forms
+
+@typeparam TValue
+
+@{
+    var radioGroupContext = new RadioGroupContext<TValue>(
+        name: Name,
+        required: Required,
+        isGroupDisabled: Disabled,
+        selectedValue: CurrentValue,
+        onValueChange: HandleValueChangeAsync
+    );
+
+    RenderFragment content =
+    @<FocusGroup Orientation="Orientation"
+                 ReadingDirection="ReadingDirection"
+                 Loop="Loop">
+        <CascadingValue Value="radioGroupContext">
+            <div role="radiogroup"
+                 aria-required="@Required"
+                 aria-orientation="@Orientation.ToDataAttributeString()"
+                 data-disabled="@(Disabled ? string.Empty : null)"
+                 dir="@(ReadingDirection == ReadingDirection.Undefined ? null : ReadingDirection.ToDataAttributeString())"
+                 @attributes="AdditionalAttributes"
+                 @ref="Element">
+                @ChildContent
+            </div>
+        </CascadingValue>
+    </FocusGroup>;
+}
+
+@if (IsFormControl)
+{
+    <InputRadioGroup TValue="TValue"
+                     Name="@Name"
+                     @bind-Value="BoundValue">
+        @content
+    </InputRadioGroup>
+}
+else
+{
+    @content
+}
+
+@code {
+    private TValue? internalValue;
+
+    private bool IsFormControl => EditContext != null;
+    private bool IsControlled => ValueChanged.HasDelegate;
+    private TValue? CurrentValue => IsControlled ? Value : internalValue;
+    private TValue? BoundValue
+    {
+        get => CurrentValue;
+        set
+        {
+            _ = HandleValueChangeAsync(value);
+        }
+    }
+
+    [CascadingParameter]
+    private EditContext? EditContext { get; set; }
+
+    [Parameter] public TValue? DefaultValue { get; set; }
+    [Parameter] public TValue? Value { get; set; }
+    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
+    [Parameter] public string? Name { get; set; }
+    [Parameter] public bool Required { get; set; }
+    [Parameter] public bool Disabled { get; set; }
+    [Parameter] public Orientation Orientation { get; set; }
+    [Parameter] public ReadingDirection ReadingDirection { get; set; }
+    [Parameter] public bool Loop { get; set; } = true;
+    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    protected override void OnInitialized()
+    {
+        if (!IsControlled)
+        {
+            internalValue = DefaultValue;
+        }
+    }
+
+    private async Task HandleValueChangeAsync(TValue? value)
+    {
+        if (IsControlled)
+        {
+            await ValueChanged.InvokeAsync(value);
+        }
+        else
+        {
+            internalValue = value;
+            StateHasChanged();
+        }
+    }
+}
