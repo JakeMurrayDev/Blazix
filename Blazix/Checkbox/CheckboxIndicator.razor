@@ -1,18 +1,23 @@
-﻿@if (IsPresent)
-{
-    <span data-state="@(Context!.State.GetDataState())"
-          data-disabled="@(Context!.Disabled ? string.Empty : null)"
+﻿@using Blazix.Presence
+@using System.Diagnostics.CodeAnalysis
+
+<Presence As="span"
+          Present="Present"
+          data-state="@(Context?.State.GetDataState())"
+          data-disabled="@(Context?.Disabled == true)"
           @attributes="AdditionalAttributes"
           style="@Style"
-          @ref="Element">
-        @ChildContent
-    </span>
-}
+          @ref="presenceComponent">
+    @ChildContent
+</Presence>
 
 @code {
+    private Presence? presenceComponent;
+    private ElementReference? element;
+
     private string? Style => CombineStyles(AdditionalAttributes, "pointer-events: none;");
 
-    private bool IsPresent => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
+    private bool Present => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
 
     [CascadingParameter]
     private CheckboxContext? Context { get; set; }
@@ -41,7 +46,12 @@
     /// May be <see langword="null"/> if accessed before the component is rendered.
     /// </para>
     /// </summary>
-    public ElementReference? Element { get; private set; }
+    [DisallowNull]
+    public ElementReference? Element
+    {
+        get => element ?? presenceComponent?.Element;
+        protected set => element = value;
+    }
 
     /// <inheritdoc />
     protected override void OnParametersSet()
