@@ -16,8 +16,12 @@
           id="@effectiveId"
           @attributes="AdditionalAttributes"
           style="@GetElementStyle()"
-          @ref="presenceComponent">
-    @ChildContent
+          @ref="presenceComponent"
+          Context="isPresent">
+    @if (Context?.IsOpen == true || isPresent)
+    {
+        @ChildContent
+    }
 </Presence>
 
 @code {
@@ -101,7 +105,7 @@
                     rAF = await module.InvokeAsync<double>("scheduleAnimationFrame", dotNetObjectReference);
                 }
             }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
             catch (Exception ex)
             {
                 Logger.LogError("Error importing blazix-collapsible.js module: {ErrorMessage}", ex.Message);
