@@ -1,31 +1,37 @@
-﻿@using Microsoft.JSInterop
-@using Microsoft.Extensions.Logging
-@using System.Diagnostics.CodeAnalysis
+﻿using Microsoft.AspNetCore.Components;
+using Microsoft.AspNetCore.Components.Rendering;
+using Microsoft.Extensions.Logging;
+using Microsoft.JSInterop;
+using System.Diagnostics.CodeAnalysis;
 
-@implements IAsyncDisposable
+namespace Blazix.Presence;
 
-@inject IJSRuntime JSRuntime
-@inject ILogger<Presence> Logger
-
-@if (IsPresentInDom)
+/// <summary>
+/// A component that conditionally renders its child content with support for animations.
+/// </summary>
+public class Presence : ComponentBase, IAsyncDisposable
 {
-    <div @attributes="AdditionalAttributes"
-         @ref="Element">
-        @if (IsChildPresent)
-        {
-            @ChildContent
-        }
-    </div>
-}
-
-@code {
     private IJSObjectReference? module;
     private DotNetObjectReference<Presence>? dotNetObjectReference;
     private PresenceState state;
     private bool hasStateChangedSinceLastRender;
 
     private bool IsPresentInDom => state is PresenceState.Mounted or PresenceState.UnmountSuspended;
-    private bool IsChildPresent => state is PresenceState.Mounted;
+
+    [Inject]
+    private IJSRuntime JSRuntime { get; set; } = default!;
+
+    [Inject]
+    private ILogger<Presence> Logger { get; set; } = default!;
+
+    /// <summary>
+    /// Gets or sets the HTML element tag to render.
+    /// <para>
+    /// Defaults to <c>div</c>.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public string As { get; set; } = "div";
 
     /// <summary>
     /// Gets or sets a value indicating whether the component is present.
@@ -37,7 +43,7 @@
     /// Defines the child components of this instance.
     /// </summary>
     [Parameter, EditorRequired]
-    public RenderFragment? ChildContent { get; set; }
+    public RenderFragment<bool>? ChildContent { get; set; }
 
     /// <summary>
     /// Gets or sets a collection of additional attributes that will be applied to the created element.
@@ -69,6 +75,19 @@
         if (wasPresent != Present)
         {
             Send(Present ? PresenceEvent.Mount : PresenceEvent.AnimationOut);
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void BuildRenderTree(RenderTreeBuilder builder)
+    {
+        if(IsPresentInDom)
+        {
+            builder.OpenElement(0, As);
+            builder.AddMultipleAttributes(1, AdditionalAttributes);
+            builder.AddElementReferenceCapture(2, capturedElement => Element = capturedElement);
+            builder.AddContent(3, ChildContent?.Invoke(IsPresentInDom));
+            builder.CloseElement();
         }
     }
 
@@ -117,6 +136,13 @@
         }
     }
 
+
+    /// <summary>
+    /// Invoked in javascript when the animation has completed.
+    /// <remarks>
+    /// Do not call this method directly.
+    /// </remarks>
+    /// </summary>
     [JSInvokable]
     public void OnAnimationEnd()
     {
