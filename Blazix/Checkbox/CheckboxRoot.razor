@@ -181,8 +181,12 @@
     {
         if (firstRender)
         {
-            module = await JSRuntime.InvokeAsync<IJSObjectReference>(
+            try
+            {
+                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
                     "import", "./_content/Blazix/blazix-checkbox.js");
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
         }
 
         // Sync size after module is potentially loaded and if needed
@@ -197,7 +201,11 @@
     {
         if (module != null)
         {
-            await module.DisposeAsync();
+            try
+            {
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
         }
     }
 
