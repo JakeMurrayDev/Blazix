@@ -1,8 +1,10 @@
-﻿@using Microsoft.JSInterop
+﻿@using Microsoft.Extensions.Logging
+@using Microsoft.JSInterop
 
 @implements IAsyncDisposable
 
 @inject IJSRuntime JSRuntime
+@inject ILogger<AvatarImage> Logger
 
 @if (Context is not null && Context.Status == ImageLoadingStatus.Loaded)
 {
@@ -14,9 +16,10 @@
 @code {
     private IJSObjectReference? module;
     private DotNetObjectReference<AvatarImage>? dotNetObjectReference;
+    private bool disposed;
+    private bool hasRendered;
     private string? currentSrc;
     private string? actualSrc; // The src currently being loaded or successfully loaded
-    private bool isDisposed;
 
     [CascadingParameter]
     private AvatarContext? Context { get; set; }
@@ -47,9 +50,10 @@
         if (Context == null)
         {
             throw new InvalidOperationException(
-                $"{nameof(AvatarImage)} must be rendered within an {nameof(AvatarRoot)}."
+                $"{nameof(AvatarImage)} must be used within an {nameof(AvatarRoot)} component that provides a {nameof(AvatarContext)}."
             );
         }
+
         dotNetObjectReference = DotNetObjectReference.Create(this);
         Context.OnStatusChange += HandleContextStatusChange;
     }
@@ -57,26 +61,33 @@
     /// <inheritdoc />
     protected override async Task OnParametersSetAsync()
     {
-        string? newSrc = null;
-        if (AdditionalAttributes?.TryGetValue("src", out var srcValue) == true)
+        if (Context == null)
         {
-            newSrc = srcValue?.ToString();
+            throw new InvalidOperationException(
+                $"{nameof(AvatarImage)} must be used within an {nameof(AvatarRoot)} component that provides a {nameof(AvatarContext)}."
+            );
         }
 
-        if (newSrc != currentSrc)
+        if (!hasRendered) return;
+
+        await LoadImage();
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
         {
-            currentSrc = newSrc;
             await LoadImage();
+            hasRendered = true;
         }
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (isDisposed) return;
-        isDisposed = true;
-
-        GC.SuppressFinalize(this);
+        if (disposed) return;
+        disposed = true;
 
         if (Context != null)
         {
@@ -91,39 +102,57 @@
             {
                 await module.DisposeAsync();
             }
-            catch (JSDisconnectedException) { /* Swallow */ }
-            catch (TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
         }
     }
 
     private async Task LoadImage()
     {
-        module ??= await JSRuntime.InvokeAsync<IJSObjectReference>(
-            "import",
-            "./_content/Blazix/blazix-avatar.js"
-        );
+        if (disposed) return;
 
-        actualSrc = currentSrc;
-
-        if (string.IsNullOrEmpty(actualSrc))
+        try
         {
-            await HandleLoadingStatusChange("error");
-            return;
-        }
+            string? newSrc = null;
+            if (AdditionalAttributes?.TryGetValue("src", out var srcValue) == true)
+            {
+                newSrc = srcValue?.ToString();
+            }
 
-        // Wait for image to load in JS.
-        // If awaited, the call would be finished first while the image is loading.
-        _ = module.InvokeVoidAsync(
-            "loadImage",
-            dotNetObjectReference,
-            actualSrc
-        );
+            if (newSrc != currentSrc)
+            {
+                currentSrc = newSrc;
+                module ??= await JSRuntime.InvokeAsync<IJSObjectReference>(
+                    "import",
+                    "./_content/Blazix/blazix-avatar.js"
+                );
+
+                actualSrc = currentSrc;
+
+                if (string.IsNullOrEmpty(actualSrc))
+                {
+                    await HandleLoadingStatusChange("error");
+                    return;
+                }
+
+                // Wait for image to load in JS.
+                // If awaited, the call would be finished first while the image is loading.
+                _ = module.InvokeVoidAsync(
+                    "loadImage",
+                    dotNetObjectReference,
+                    actualSrc
+                );
+            }
+        }
+        catch (Exception ex)
+        {
+            Logger.LogError("Error importing blazix-avatar.js module: {ErrorMessage}", ex.Message);
+        }
     }
 
     [JSInvokable]
     public async Task HandleLoadingStatusChange(string status)
     {
-        if (isDisposed || Context is null) return;
+        if (disposed || Context is null) return;
 
         var newStatus = status switch
         {
@@ -143,11 +172,8 @@
     /// </summary>
     private Task HandleContextStatusChange(ImageLoadingStatus status)
     {
-        if (!isDisposed)
-        {
-            return InvokeAsync(StateHasChanged);
-        }
+        if (disposed) return Task.CompletedTask;
 
-        return Task.CompletedTask;
+        return InvokeAsync(StateHasChanged);
     }
 }
