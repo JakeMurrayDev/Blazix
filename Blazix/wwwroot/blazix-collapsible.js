@@ -25,8 +25,8 @@ export function updateCollapsibleContentSize(element, isMountAnimationPrevented)
     const width = rect.width;
 
     if (!isMountAnimationPrevented) {
-        element.style.transitionDuration = originalStyles.transitionDuration == '0s' ? '' : originalStyles.transitionDuration || '';
-        element.style.animationName = originalStyles.animationName == 'none' ? '' : originalStyles.animationName || '';
+        element.style.transitionDuration = originalStyles.transitionDuration;
+        element.style.animationName = originalStyles.animationName;
     }
 
     return { Width: width, Height: height };
