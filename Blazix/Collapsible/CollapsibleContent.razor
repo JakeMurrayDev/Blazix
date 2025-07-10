@@ -18,7 +18,7 @@
           style="@GetElementStyle()"
           @ref="presenceComponent"
           Context="isPresent">
-    @if (Context?.IsOpen == true || isPresent)
+    @if (isPresent)
     {
         @ChildContent
     }
@@ -27,15 +27,16 @@
 @code {
     private sealed record ElementSize(double? Height, double? Width);
 
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
+    private DotNetObjectReference<CollapsibleContent>? dotNetObjectReference;
     private Presence? presenceComponent;
     private ElementReference? element;
     private string? effectiveId;
-    private DotNetObjectReference<CollapsibleContent>? dotNetObjectReference;
-    private IJSObjectReference? module;
     private double rAF;
     private bool isMountAnimationPrevented;
     private double? height;
     private double? width;
+    private bool internalPresent;
 
     [CascadingParameter]
     private CollapsibleContext? Context { get; set; }
@@ -75,7 +76,9 @@
     protected override void OnInitialized()
     {
         dotNetObjectReference = DotNetObjectReference.Create(this);
-        isMountAnimationPrevented = Context?.IsOpen == true;
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-collapsible.js").AsTask());
+        isMountAnimationPrevented = true;
     }
 
     /// <inheritdoc />
@@ -93,13 +96,12 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var module = await moduleTask.Value;
+
         if (firstRender)
         {
             try
             {
-                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/Blazix/blazix-collapsible.js");
-
                 if (module != null)
                 {
                     rAF = await module.InvokeAsync<double>("scheduleAnimationFrame", dotNetObjectReference);
@@ -112,18 +114,18 @@
             }
         }
 
-        if (module != null && Element.HasValue && Context?.IsOpen == true)
+        if (module != null && Element.HasValue && (internalPresent != Context?.IsOpen == true || ForceMount))
         {
             var result = await module.InvokeAsync<ElementSize>("updateCollapsibleContentSize",
                 Element, isMountAnimationPrevented);
 
             var hasChanged = false;
-            if (height != result.Height)
+            if (IsDoubleEqual(height ?? 0, result.Height ?? 0))
             {
                 height = result.Height > 0 ? result.Height : null;
                 hasChanged = true;
             }
-            if (width != result.Width)
+            if (IsDoubleEqual(width ?? 0, result.Width ?? 0))
             {
                 width = result.Width > 0 ? result.Width : null;
                 hasChanged = true;
@@ -133,6 +135,8 @@
             {
                 StateHasChanged();
             }
+
+            internalPresent = Context?.IsOpen == true || ForceMount;
         }
     }
 
@@ -140,11 +144,11 @@
     public async ValueTask DisposeAsync()
     {
         dotNetObjectReference?.Dispose();
-
-        if (module != null)
+        if (moduleTask.IsValueCreated)
         {
             try
             {
+                var module = await moduleTask.Value;
                 await module.InvokeVoidAsync("cancelScheduledAnimationFrame", rAF);
                 await module.DisposeAsync();
             }
@@ -185,5 +189,10 @@
         }
 
         Context?.ReportEffectiveContentId(effectiveId);
+    }
+
+    private static bool IsDoubleEqual(double a, double b)
+    {
+        return Math.Abs(a - b) < double.Epsilon;
     }
 }
