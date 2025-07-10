@@ -26,7 +26,7 @@
 
 <CascadingValue Value="itemContext">
     <CollapsibleRoot Open="@isOpen"
-                     OpenChanged="@HandleOpenChange"
+                     OpenChanged="@HandleOpenChanged"
                      Disabled="@actualItemDisabled"
                      data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
                      data-state="@(isOpen ? "open" : "closed")"
@@ -89,7 +89,7 @@
         }
     }
 
-    private async Task HandleOpenChange(bool open)
+    private async Task HandleOpenChanged(bool open)
     {
         if (AccordionContext != null)
         {
