@@ -11,7 +11,7 @@ namespace Blazix.Presence;
 /// </summary>
 public class Presence : ComponentBase, IAsyncDisposable
 {
-    private IJSObjectReference? module;
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private DotNetObjectReference<Presence>? dotNetObjectReference;
     private PresenceState state;
     private bool hasStateChangedSinceLastRender;
@@ -65,6 +65,8 @@ public class Presence : ComponentBase, IAsyncDisposable
     protected override void OnInitialized()
     {
         dotNetObjectReference = DotNetObjectReference.Create(this);
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-presence.js").AsTask());
         state = Present ? PresenceState.Mounted : PresenceState.Unmounted;
     }
 
@@ -94,21 +96,17 @@ public class Presence : ComponentBase, IAsyncDisposable
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            module = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/Blazix/blazix-presence.js");
-        }
-
-        if (module != null && hasStateChangedSinceLastRender && state == PresenceState.UnmountSuspended && Element.HasValue)
+        if (hasStateChangedSinceLastRender && state == PresenceState.UnmountSuspended && Element.HasValue)
         {
             try
             {
-                await module.InvokeVoidAsync("addPresenceEventListeners", Element, dotNetObjectReference);
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("checkForExitAnimationAndListen", Element, dotNetObjectReference);
             }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
             catch (Exception ex)
             {
-                Logger.LogError(ex, "Failed to add presence event listeners.");
+                Logger.LogError(ex, "Failed to check for exit animation.");
             }
         }
         hasStateChangedSinceLastRender = false;
@@ -118,10 +116,11 @@ public class Presence : ComponentBase, IAsyncDisposable
     public async ValueTask DisposeAsync()
     {
         dotNetObjectReference?.Dispose();
-        if (module != null)
+        if (moduleTask.IsValueCreated)
         {
             try
             {
+                var module = await moduleTask.Value;
                 if (Element.HasValue)
                 {
                     await module.InvokeVoidAsync("removePresenceEventListeners", Element);
@@ -129,10 +128,6 @@ public class Presence : ComponentBase, IAsyncDisposable
                 await module.DisposeAsync();
             }
             catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
-            catch (Exception ex)
-            {
-                Logger.LogError(ex, "Error during Presence component disposal.");
-            }
         }
     }
 
@@ -149,14 +144,27 @@ public class Presence : ComponentBase, IAsyncDisposable
         Send(PresenceEvent.AnimationEnd);
     }
 
+    /// <summary>
+    /// Invoked in javascript when the component has no animation.
+    /// <remarks>
+    /// Do not call this method directly.
+    /// </remarks>
+    /// </summary>
+    [JSInvokable]
+    public void UnmountImmediately()
+    {
+        Send(PresenceEvent.Unmount);
+    }
+
     private void Send(PresenceEvent presenceEvent)
     {
         var nextState = (state, presenceEvent) switch
         {
-            (PresenceState.Mounted, PresenceEvent.AnimationOut) => PresenceState.UnmountSuspended,
             (PresenceState.Mounted, PresenceEvent.Unmount) => PresenceState.Unmounted,
+            (PresenceState.Mounted, PresenceEvent.AnimationOut) => PresenceState.UnmountSuspended,
             (PresenceState.UnmountSuspended, PresenceEvent.Mount) => PresenceState.Mounted,
             (PresenceState.UnmountSuspended, PresenceEvent.AnimationEnd) => PresenceState.Unmounted,
+            (PresenceState.UnmountSuspended, PresenceEvent.Unmount) => PresenceState.Unmounted,
             (PresenceState.Unmounted, PresenceEvent.Mount) => PresenceState.Mounted,
             _ => state
         };
