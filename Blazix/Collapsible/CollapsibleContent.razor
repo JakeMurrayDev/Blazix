@@ -1,14 +1,9 @@
 ﻿@using Blazix.Presence
-@using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
-@using System.Text
-@using System.Globalization
 @using System.Diagnostics.CodeAnalysis
-@using static AttributeUtilities
 
 @implements IAsyncDisposable
 @inject IJSRuntime JSRuntime
-@inject ILogger<CollapsibleContent> Logger
 
 <Presence Present="@(Context?.IsOpen == true || ForceMount)"
           data-state="@(Context?.IsOpen == true ? "open" : "closed")"
@@ -20,15 +15,11 @@
 </Presence>
 
 @code {
-    private sealed record ElementSize(double? Height, double? Width);
-
     private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private DotNetObjectReference<CollapsibleContent>? dotNetObjectReference;
     private Presence? presenceComponent;
     private ElementReference? element;
     private string? effectiveId;
-    private double? height;
-    private double? width;
     private bool internalPresent;
 
     [CascadingParameter]
@@ -88,13 +79,17 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var module = await moduleTask.Value;
-        if (module != null && Element.HasValue && (internalPresent != Context?.IsOpen == true || ForceMount))
+        try
         {
-            //Should be synchronous or the animation will kick in immediately
-            _ = module.InvokeVoidAsync("processAnimationAndSize", effectiveId, Element.Value, firstRender);
-            internalPresent = Context?.IsOpen == true || ForceMount;
+            var module = await moduleTask.Value;
+            if (module != null && Element.HasValue && (internalPresent != Context?.IsOpen == true || ForceMount))
+            {
+                //Should be synchronous or the animation will kick in immediately
+                _ = module.InvokeVoidAsync("processAnimationAndSize", effectiveId, Element.Value, firstRender);
+                internalPresent = Context?.IsOpen == true || ForceMount;
+            }
         }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
     }
 
     /// <inheritdoc />
@@ -109,7 +104,7 @@
                 await module.InvokeVoidAsync("dispose", effectiveId);
                 await module.DisposeAsync();
             }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
         }
     }
 

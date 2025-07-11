@@ -16,9 +16,6 @@ const state = window[BLAZIX_STATE_KEY];
  * @returns
  */
 export function processAnimationAndSize(id, element, firstRender) {
-
-    if (!element) return { width: 0, height: 0 };
-
     if (!state.originalStyles.has(id)) {
         state.originalStyles.set(id, {
             transitionDuration: element.style.transitionDuration,
