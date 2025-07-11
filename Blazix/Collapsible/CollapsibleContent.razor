@@ -15,13 +15,8 @@
           data-disabled="@(Context?.IsDisabled == true ? string.Empty : null)"
           id="@effectiveId"
           @attributes="AdditionalAttributes"
-          style="@GetElementStyle()"
-          @ref="presenceComponent"
-          Context="isPresent">
-    @if (isPresent)
-    {
-        @ChildContent
-    }
+          @ref="presenceComponent">
+    @ChildContent
 </Presence>
 
 @code {
@@ -32,8 +27,6 @@
     private Presence? presenceComponent;
     private ElementReference? element;
     private string? effectiveId;
-    private double rAF;
-    private bool isMountAnimationPrevented;
     private double? height;
     private double? width;
     private bool internalPresent;
@@ -78,7 +71,6 @@
         dotNetObjectReference = DotNetObjectReference.Create(this);
         moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
             "import", "./_content/Blazix/blazix-collapsible.js").AsTask());
-        isMountAnimationPrevented = true;
     }
 
     /// <inheritdoc />
@@ -97,45 +89,10 @@
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         var module = await moduleTask.Value;
-
-        if (firstRender)
-        {
-            try
-            {
-                if (module != null)
-                {
-                    rAF = await module.InvokeAsync<double>("scheduleAnimationFrame", dotNetObjectReference);
-                }
-            }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
-            catch (Exception ex)
-            {
-                Logger.LogError("Error importing blazix-collapsible.js module: {ErrorMessage}", ex.Message);
-            }
-        }
-
         if (module != null && Element.HasValue && (internalPresent != Context?.IsOpen == true || ForceMount))
         {
-            var result = await module.InvokeAsync<ElementSize>("updateCollapsibleContentSize",
-                Element, isMountAnimationPrevented);
-
-            var hasChanged = false;
-            if (IsDoubleEqual(height ?? 0, result.Height ?? 0))
-            {
-                height = result.Height > 0 ? result.Height : null;
-                hasChanged = true;
-            }
-            if (IsDoubleEqual(width ?? 0, result.Width ?? 0))
-            {
-                width = result.Width > 0 ? result.Width : null;
-                hasChanged = true;
-            }
-
-            if (hasChanged)
-            {
-                StateHasChanged();
-            }
-
+            //Should be synchronous or the animation will kick in immediately
+            _ = module.InvokeVoidAsync("processAnimationAndSize", effectiveId, Element.Value, firstRender);
             internalPresent = Context?.IsOpen == true || ForceMount;
         }
     }
@@ -149,29 +106,11 @@
             try
             {
                 var module = await moduleTask.Value;
-                await module.InvokeVoidAsync("cancelScheduledAnimationFrame", rAF);
+                await module.InvokeVoidAsync("dispose", effectiveId);
                 await module.DisposeAsync();
             }
             catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { }
         }
-    }
-
-    [JSInvokable]
-    public void SetMountAnimationPrevented()
-    {
-        isMountAnimationPrevented = false;
-    }
-
-    private string? GetElementStyle()
-    {
-        var styles = new StringBuilder();
-
-        if (height.HasValue)
-            styles.Append($"--blazix-collapsible-content-height: {height.Value}px;");
-        if (width.HasValue)
-            styles.Append($"--blazix-collapsible-content-width: {width.Value}px;");
-
-        return CombineStyles(AdditionalAttributes, styles.ToString());
     }
 
     private void CheckEffectiveId()
