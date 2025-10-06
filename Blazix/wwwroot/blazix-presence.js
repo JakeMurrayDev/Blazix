@@ -1,8 +1,8 @@
-const BLAZIX_DOM_STATE_KEY = Symbol.for('Blazix.DOM.State');
-if (!window[BLAZIX_DOM_STATE_KEY]) {
-    window[BLAZIX_DOM_STATE_KEY] = { elementData: new Map() };
+const BLAZIX_STATE_KEY = Symbol.for('Blazix.Presence.State');
+if (!window[BLAZIX_STATE_KEY]) {
+    window[BLAZIX_STATE_KEY] = { elementData: new Map() };
 }
-const state = window[BLAZIX_DOM_STATE_KEY];
+const state = window[BLAZIX_STATE_KEY];
 
 function getAnimationName(styles) {
     return styles?.animationName || 'none';
