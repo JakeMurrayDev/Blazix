@@ -39,6 +39,8 @@
         }
     }
 
+    public bool KeyDownPrevented { get; private set; }
+
     /// <inheritdoc />
     protected override void OnAfterRender(bool firstRender)
     {
@@ -83,7 +85,11 @@
     /// </para>
     /// </summary>
     /// <param name="e">The keyboard event arguments.</param>
-    public Task OnKeyDown(KeyboardEventArgs e) => Context?.OnKeyDown(e) ?? Task.CompletedTask;
+    public Task OnKeyDown(KeyboardEventArgs e)
+    {
+        KeyDownPrevented = e.Key != "Tab";
+        return Context?.OnKeyDown(e) ?? Task.CompletedTask;
+    }
 
     /// <summary>
     /// Focuses the item, setting <see cref="Focused"/> to <see langword="true"/>.
