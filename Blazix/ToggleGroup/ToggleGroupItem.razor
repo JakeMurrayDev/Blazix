@@ -4,17 +4,7 @@
 @typeparam TValue
 
 <FocusGroupItem @ref="focusGroupItem">
-    <ToggleRoot Pressed="IsPressed"
-                PressedChanged="HandlePressedInternalAsync"
-                Disabled="IsActuallyDisabled"
-                @attributes="AdditionalAttributes"
-                id="@Id"
-                @onkeydown="HandleKeyDownAsync"
-                @onfocus="HandleFocus"
-                @onblur="HandleBlur"
-                @ref="toggle">
-        @ChildContent
-    </ToggleRoot>
+    @ToggleRootContent()
 </FocusGroupItem>
 
 @code {
@@ -112,4 +102,21 @@
     private void HandleFocus() => focusGroupItem?.Focus();
 
     private void HandleBlur() => focusGroupItem?.Blur();
+
+    private RenderFragment ToggleRootContent() => builder =>
+    {
+        builder.OpenComponent<ToggleRoot>(0);
+        builder.AddComponentParameter(1, nameof(ToggleRoot.Pressed), IsPressed);
+        builder.AddComponentParameter(2, nameof(ToggleRoot.PressedChanged), EventCallback.Factory.Create<bool>(this, HandlePressedInternalAsync));
+        builder.AddComponentParameter(3, nameof(ToggleRoot.Disabled), IsActuallyDisabled);
+        builder.AddComponentParameter(4, nameof(ToggleRoot.ChildContent), ChildContent);
+        builder.AddMultipleAttributes(5, AdditionalAttributes);
+        builder.AddAttribute(6, "id", Id);
+        builder.AddAttribute(7, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, HandleKeyDownAsync));
+        builder.AddEventPreventDefaultAttribute(8, "onkeydown", focusGroupItem?.KeyDownPrevented ?? false);
+        builder.AddAttribute(9, "onfocus", EventCallback.Factory.Create(this, HandleFocus));
+        builder.AddAttribute(10, "onblur", EventCallback.Factory.Create(this, HandleBlur));
+        builder.AddComponentReferenceCapture(11, r => toggle = (ToggleRoot)r);
+        builder.CloseComponent();
+    };
 }
