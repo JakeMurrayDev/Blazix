@@ -20,7 +20,7 @@
     private string? CombinedStyle => CombineStyles(AdditionalAttributes, AccordionStyle);
 
     [CascadingParameter]
-    private AccordionContext<string>? AccordionContext { get; set; } // Assuming string for now
+    private IAccordionContext? AccordionContext { get; set; }
 
     [CascadingParameter]
     private AccordionItemContext? ItemContext { get; set; }
