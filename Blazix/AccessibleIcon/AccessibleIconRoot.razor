@@ -1,0 +1,71 @@
+﻿@using Blazix.VisuallyHidden
+@using Microsoft.JSInterop
+@using System.Globalization
+@using System.Diagnostics.CodeAnalysis
+
+@inject IJSRuntime JSRuntime
+
+<span hidden="@true"
+      aria-hidden="@true"
+      @ref="Element">
+    @* This serves as a marker for JS to detect nearby svg elements and apply the attributes. *@
+    @* This wiil get removed on after render to not pollute the code and cause confusion. *@
+</span>
+@ChildContent
+<VisuallyHiddenRoot>@Label</VisuallyHiddenRoot>
+
+@code {
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
+
+    /// <summary>
+    /// Gets or sets the accessible label for the icon.
+    /// <para>
+    /// This label will be visually hidden but announced to screen reader users, similar to `alt` text for `img` tags.
+    /// </para>
+    /// </summary>
+    [Parameter]
+    public string? Label { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+           "import", "./_content/Blazix/blazix-accessible-icon.js").AsTask());
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("initializeIcon", Element);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+        }
+    }
+
+    public async ValueTask DisposeAsync()
+    {
+        if (moduleTask.IsValueCreated)
+        {
+            var module = await moduleTask.Value;
+            await module.DisposeAsync();
+        }
+    }
+}
