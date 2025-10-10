@@ -1,0 +1,86 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using static SliderHelpers
+
+<span data-orientation="@Context?.Orientation.ToDataAttributeString()"
+      data-disabled="@(Context?.Disabled is true ? string.Empty : null)"
+      @attributes="AdditionalAttributes"
+      style="@GetStyle()"
+      @ref="Element">
+    @ChildContent
+</span>
+
+@code {
+    [CascadingParameter]
+    private SliderValueContext? Context { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(SliderRange)}' must have an ancestor '{nameof(SliderRoot)}'.");
+        }
+    }
+
+    private string GetStyle()
+    {
+        if (Context is null || Context.Values.Length == 0)
+            return string.Empty;
+
+        var percentages = Context.Values
+            .Select(v => ConvertValueToPercentage(v, Context.Min, Context.Max))
+            .ToArray();
+
+        var offsetStart = Context.Values.Length > 1 ? percentages.Min() : 0;
+        var offsetEnd = 100 - percentages.Max();
+
+        var (startEdge, endEdge) = GetEdges();
+
+        var style = $"{startEdge}: {offsetStart:F2}%; {endEdge}: {offsetEnd:F2}%";
+        var existingStyle = CombineStyles(AdditionalAttributes, null);
+
+        return string.IsNullOrEmpty(existingStyle) ? style : $"{existingStyle}; {style}";
+    }
+
+    private (string startEdge, string endEdge) GetEdges()
+    {
+        if (Context is null)
+            return ("left", "right");
+
+        var isHorizontal = Context.Orientation == Orientation.Horizontal;
+        var isLTR = Context.ReadingDirection == ReadingDirection.LeftToRight;
+        var isInverted = Context.Inverted;
+
+        if (isHorizontal)
+        {
+            var isSlidingFromLeft = (isLTR && !isInverted) || (!isLTR && isInverted);
+            return isSlidingFromLeft ? ("left", "right") : ("right", "left");
+        }
+        else
+        {
+            var isSlidingFromBottom = !isInverted;
+            return isSlidingFromBottom ? ("bottom", "top") : ("top", "bottom");
+        }
+    }
+}

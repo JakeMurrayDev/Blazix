@@ -1,0 +1,43 @@
+﻿@using System.Diagnostics.CodeAnalysis
+
+<span data-orientation="@Context?.Orientation.ToDataAttributeString()"
+      data-disabled="@(Context?.Disabled is true ? string.Empty : null)"
+      @attributes="AdditionalAttributes"
+      @ref="Element">
+    @ChildContent
+</span>
+
+@code {
+    [CascadingParameter]
+    private SliderValueContext? Context { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(SliderTrack)}' must have an ancestor '{nameof(SliderRoot)}'.");
+        }
+    }
+}

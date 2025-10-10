@@ -1,0 +1,201 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using static SliderHelpers
+@using Microsoft.JSInterop
+
+@implements IDisposable
+@inject IJSRuntime JSRuntime
+
+<span style="@GetThumbContainerStyle()">
+    <span role="slider"
+          aria-label="@GetAriaLabel()"
+          aria-valuemin="@Context?.Min"
+          aria-valuenow="@currentValue"
+          aria-valuemax="@Context?.Max"
+          aria-orientation="@Context?.Orientation.ToDataAttributeString()"
+          data-disabled="@(Context?.Disabled == true ? string.Empty : null)"
+          data-orientation="@Context?.Orientation.ToDataAttributeString()"
+          tabindex="@(Context?.Disabled == true ? -1 : 0)"
+          @attributes="AdditionalAttributes"
+          @onfocus="HandleFocus"
+          style="@(CombineStyles(AdditionalAttributes, currentValue == null ? "display: none" : null))"
+          @ref="Element">
+        @ChildContent
+    </span>
+
+    @if (isFormControl && currentValue != null)
+    {
+        <input type="hidden"
+               name="@GetInputName()"
+               form="@Context?.Form"
+               value="@currentValue" />
+    }
+</span>
+
+@code {
+    private int index = -1;
+    private double? currentValue;
+    private bool isFormControl;
+    private bool isRegistered;
+
+    [CascadingParameter]
+    private SliderValueContext? Context { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    public int Index => index;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(SliderThumb)}' must have an ancestor '{nameof(SliderRoot)}'.");
+        }
+
+        index = Context.RegisterThumb(this);
+        isRegistered = true;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(SliderThumb)}' must have an ancestor '{nameof(SliderRoot)}'.");
+        }
+
+        UpdateCurrentValue();
+        UpdateFormControl();
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        if (isRegistered && Context is not null)
+        {
+            Context.UnregisterThumb(this);
+            isRegistered = false;
+        }
+    }
+
+    private void UpdateCurrentValue()
+    {
+        if (Context is null || index < 0 || index >= Context.Values.Length)
+        {
+            currentValue = null;
+            return;
+        }
+
+        currentValue = Context.Values[index];
+    }
+
+    private void UpdateFormControl()
+    {
+        isFormControl = !string.IsNullOrEmpty(Context?.Form);
+    }
+
+    private void HandleFocus()
+    {
+        Context?.FocusThumbAtIndex(index);
+    }
+
+    public async Task FocusAsync()
+    {
+        if (Element.HasValue)
+        {
+            try
+            {
+                await Element.Value.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private string GetThumbContainerStyle()
+    {
+        if (Context is null || currentValue == null)
+            return string.Empty;
+
+        var percent = ConvertValueToPercentage(currentValue.Value, Context.Min, Context.Max);
+        var (startEdge, transform) = GetPositionProps();
+
+        return $"transform: {transform}; position: absolute; {startEdge}: {percent:F2}%";
+    }
+
+    private (string startEdge, string transform) GetPositionProps()
+    {
+        if (Context is null)
+            return ("left", "translateX(-50%)");
+
+        var isHorizontal = Context.Orientation == Orientation.Horizontal;
+        var isLTR = Context.ReadingDirection == ReadingDirection.LeftToRight;
+        var isInverted = Context.Inverted;
+
+        if (isHorizontal)
+        {
+            var isSlidingFromLeft = (isLTR && !isInverted) || (!isLTR && isInverted);
+            var edge = isSlidingFromLeft ? "left" : "right";
+            return (edge, "translateX(-50%)");
+        }
+        else
+        {
+            var isSlidingFromBottom = !isInverted;
+            var edge = isSlidingFromBottom ? "bottom" : "top";
+            return (edge, "translateY(50%)");
+        }
+    }
+
+    private string? GetAriaLabel()
+    {
+        var ariaLabel = AdditionalAttributes?.TryGetValue("aria-label", out var label) == true
+            ? label?.ToString()
+            : null;
+
+        if (!string.IsNullOrEmpty(ariaLabel))
+            return ariaLabel;
+
+        if (Context is null)
+            return null;
+
+        var totalValues = Context.Values.Length;
+
+        if (totalValues > 2)
+            return $"Value {index + 1} of {totalValues}";
+        else if (totalValues == 2)
+            return index == 0 ? "Minimum" : "Maximum";
+
+        return null;
+    }
+
+    private string? GetInputName()
+    {
+        if (Context is null)
+            return null;
+
+        if (!string.IsNullOrEmpty(Context.Name))
+        {
+            return Context.Values.Length > 1 ? $"{Context.Name}[]" : Context.Name;
+        }
+
+        return null;
+    }
+}

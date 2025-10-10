@@ -1,0 +1,415 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.Services
+@using Microsoft.JSInterop
+@using System.Globalization
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject IReadingDirectionService ReadingDirectionService
+
+@{
+    var currentContext = new SliderValueContext(
+        Name: Name,
+        Disabled: Disabled,
+        Min: Min,
+        Max: Max,
+        Step: Step,
+        Values: CurrentValues,
+        Orientation: Orientation,
+        ReadingDirection: actualReadingDirection,
+        Inverted: Inverted,
+        Form: Form,
+        GetThumbId: GetThumbId,
+        RegisterThumb: RegisterThumb,
+        UnregisterThumb: UnregisterThumb,
+        FocusThumbAtIndex: FocusThumbAtIndex
+    );
+}
+
+<CascadingValue Value="currentContext">
+    <span role="group"
+          data-orientation="@Orientation.ToDataAttributeString()"
+          data-disabled="@(Disabled ? string.Empty : null)"
+          dir="@actualReadingDirection.ToDataAttributeString()"
+          @attributes="AdditionalAttributes"
+          @ref="Element">
+        @ChildContent
+    </span>
+</CascadingValue>
+
+@code {
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
+    private DotNetObjectReference<SliderRoot>? dotNetObjectReference;
+    private double[] currentValues = [];
+    private double[] valuesBeforeSlideStart = [];
+    private ReadingDirection actualReadingDirection;
+    private int valueIndexToChange;
+    private readonly string defaultThumbIdPrefix = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+    private readonly Dictionary<int, string> thumbIds = new();
+    private readonly List<SliderThumb> registeredThumbs = new();
+
+    private bool IsControlled => ValueChanged.HasDelegate;
+    private double[] CurrentValues => IsControlled ? Value?.ToArray() ?? [] : currentValues;
+
+    /// <summary>
+    /// Gets or sets he name of the slider. Submitted with its owning form as part of a name/value pair.
+    /// </summary>
+    [Parameter]
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/> , prevents the user from interacting with the slider.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets the orientation of the slider.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>
+    /// Gets or sets the reading direction of the slider. If omitted, inherits globally from <see cref="IReadingDirectionService"/> or assumes LTR (left-to-right) reading mode.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// Gets or sets the minimum value for the range.
+    /// </summary>
+    [Parameter]
+    public double Min { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the maximum value for the range.
+    /// </summary>
+    [Parameter]
+    public double Max { get; set; } = 100;
+
+    /// <summary>
+    /// Gets or sets the stepping interval.
+    /// </summary>
+    [Parameter]
+    public double Step { get; set; } = 1;
+
+    /// <summary>
+    /// The minimum permitted <see cref="Step"/>s between multiple thumb.
+    /// </summary>
+    [Parameter]
+    public double MinStepsBetweenThumbs { get; set; } = 0;
+
+    /// <summary>
+    /// Gets or sets the controlled value of the slider.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<double>? Value { get; set; }
+
+    /// <summary>
+    /// Gets or sets a callback that is invoked when the value changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IEnumerable<double>?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Gets or sets a callback that is invoked when the user stops dragging a thumb or when the value changes via keyboard interaction.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IEnumerable<double>?> OnValueCommit { get; set; }
+
+    /// <summary>
+    /// Gets or sets the default value of the slider. Used when the component is not controlled.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<double>? DefaultValue { get; set; }
+
+    /// <summary>
+    /// Gets or sets whether the slider is visually inverted.
+    /// </summary>
+    [Parameter]
+    public bool Inverted { get; set; }
+
+    /// <summary>
+    /// Gets or sets the ID of the form that the slider belongs to. If omitted, the slider will be associated with a parent form if one exists.
+    /// </summary>
+    [Parameter]
+    public string? Form { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        dotNetObjectReference = DotNetObjectReference.Create(this);
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-slider.js").AsTask());
+
+        if (!IsControlled)
+        {
+            currentValues = DefaultValue?.Any() is true ? [.. DefaultValue] : [Min];
+        }
+
+        actualReadingDirection = ReadingDirection == ReadingDirection.Undefined
+            ? ReadingDirectionService.GetReadingDirection()
+            : ReadingDirection;
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && Element.HasValue)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync(
+                    "initialize",
+                    Element.Value,
+                    dotNetObjectReference,
+                    Orientation.ToDataAttributeString(),
+                    Inverted,
+                    actualReadingDirection.ToDataAttributeString()
+                );
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        dotNetObjectReference?.Dispose();
+        if (moduleTask.IsValueCreated)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("dispose", Element);
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private int RegisterThumb(SliderThumb thumb)
+    {
+        var index = registeredThumbs.Count;
+        registeredThumbs.Add(thumb);
+        return index;
+    }
+
+    private void UnregisterThumb(SliderThumb thumb)
+    {
+        registeredThumbs.Remove(thumb);
+    }
+
+    private void FocusThumbAtIndex(int index)
+    {
+        if (index >= 0 && index < registeredThumbs.Count)
+        {
+            valueIndexToChange = index;
+            _ = registeredThumbs[index].FocusAsync();
+        }
+    }
+
+    private string? GetThumbId(int index)
+    {
+        if (!thumbIds.TryGetValue(index, out var id))
+        {
+            id = $"{defaultThumbIdPrefix}-{index}";
+            thumbIds[index] = id;
+        }
+        return id;
+    }
+
+    private async Task UpdateValue(int index, double value)
+    {
+        var decimalCount = GetDecimalCount(Step);
+        var snapToStep = RoundValue(
+            double.CreateChecked(Math.Round(
+                double.CreateChecked((value - Min) / Step))) * Step + Min,
+            decimalCount
+        );
+        var nextValue = Math.Clamp(snapToStep, Min, Max);
+
+        var nextValues = GetNextSortedValues(CurrentValues, nextValue, index);
+
+        if (HasMinStepsBetweenValues(nextValues, double.CreateChecked(MinStepsBetweenThumbs) * Step))
+        {
+            var newIndex = Array.IndexOf(nextValues, nextValue);
+            var indexChanged = newIndex != valueIndexToChange;
+            valueIndexToChange = newIndex;
+
+            if (IsControlled)
+            {
+                await ValueChanged.InvokeAsync(nextValues);
+            }
+            else
+            {
+                currentValues = nextValues;
+                StateHasChanged();
+            }
+
+            if (indexChanged)
+            {
+                await Task.Delay(1);
+                FocusThumbAtIndex(valueIndexToChange);
+            }
+        }
+    }
+
+    private async Task CommitValues()
+    {
+        var prevValue = valuesBeforeSlideStart.ElementAtOrDefault(valueIndexToChange);
+        var nextValue = CurrentValues.ElementAtOrDefault(valueIndexToChange);
+
+        if (!EqualityComparer<double>.Default.Equals(prevValue, nextValue))
+        {
+            await OnValueCommit.InvokeAsync(CurrentValues);
+        }
+    }
+
+    [JSInvokable]
+    public void HandleSlideStart(double clientX, double clientY)
+    {
+        if (Disabled) return;
+        valuesBeforeSlideStart = [.. CurrentValues];
+    }
+
+    [JSInvokable]
+    public async Task HandleSlideMove(double clientX, double clientY, double width, double height, double left, double top)
+    {
+        if (Disabled) return;
+
+        var value = Orientation == Orientation.Horizontal
+            ? GetValueFromPointer(clientX, width, left, Min, Max, Inverted, actualReadingDirection)
+            : GetValueFromPointer(clientY, height, top, Max, Min, Inverted, ReadingDirection.LeftToRight);
+
+        await UpdateValue(valueIndexToChange, value);
+    }
+
+    [JSInvokable]
+    public async Task HandleSlideEnd()
+    {
+        if (Disabled) return;
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleHomeKey()
+    {
+        if (Disabled) return;
+        await UpdateValue(0, Min);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleEndKey()
+    {
+        if (Disabled) return;
+        await UpdateValue(CurrentValues.Length - 1, Max);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleStepKey(bool isBackKey, bool isPageKey, bool isShiftKey)
+    {
+        if (Disabled) return;
+
+        var multiplier = (isPageKey || isShiftKey) ? 10 : 1;
+        var direction = isBackKey ? -1 : 1;
+        var value = CurrentValues[valueIndexToChange];
+        var stepInDirection = Step * double.CreateChecked(multiplier * direction);
+
+        await UpdateValue(valueIndexToChange, value + stepInDirection);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public void SetValueIndexToChange(int index)
+    {
+        valueIndexToChange = index;
+    }
+
+    private static double GetValueFromPointer(
+        double pointerPosition,
+        double size,
+        double offset,
+        double outputMin,
+        double outputMax,
+        bool inverted,
+        ReadingDirection direction)
+    {
+        var input = pointerPosition - offset;
+        var percent = input / size;
+
+        var isReversed = (direction == ReadingDirection.LeftToRight && !inverted) ||
+                        (direction == ReadingDirection.RightToLeft && inverted);
+
+        if (!isReversed)
+        {
+            percent = 1 - percent;
+        }
+
+        var range = double.CreateChecked(outputMax - outputMin);
+        var value = outputMin + double.CreateChecked(percent * range);
+
+        return value;
+    }
+
+    private static double[] GetNextSortedValues(double[] prevValues, double nextValue, int atIndex)
+    {
+        var nextValues = new double[prevValues.Length];
+        Array.Copy(prevValues, nextValues, prevValues.Length);
+        nextValues[atIndex] = nextValue;
+        Array.Sort(nextValues);
+        return nextValues;
+    }
+
+    private static bool HasMinStepsBetweenValues(double[] values, double minSteps)
+    {
+        if (minSteps <= 0) return true;
+
+        for (int i = 0; i < values.Length - 1; i++)
+        {
+            if (values[i + 1] - values[i] < minSteps)
+                return false;
+        }
+
+        return true;
+    }
+
+    private static int GetDecimalCount(double value)
+    {
+        var str = value.ToString(CultureInfo.InvariantCulture);
+        var decimalIndex = str.IndexOf('.');
+        return decimalIndex == -1 ? 0 : str.Length - decimalIndex - 1;
+    }
+
+    private static double RoundValue(double value, int decimalCount)
+    {
+        var multiplier = Math.Pow(10, decimalCount);
+        var rounded = Math.Round(value * multiplier) / multiplier;
+        return rounded;
+    }
+}
