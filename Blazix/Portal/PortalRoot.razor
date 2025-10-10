@@ -1,0 +1,96 @@
+﻿﻿@using System.Globalization
+@using Microsoft.JSInterop
+@using System.Diagnostics.CodeAnalysis
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+<div @attributes="AdditionalAttributes"
+     class="portal"
+     id="@GetIdOrDefault(AdditionalAttributes, defaultId)"
+     style="@CombineStyles(AdditionalAttributes, (!hasRendered ? "display: none;" : null))"
+     @ref="Element">
+    @ChildContent
+</div>
+
+@code {
+    private readonly string defaultId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
+    private bool hasRendered;
+
+    /// <summary>
+    /// Gets or sets the CSS selector of the target element to which the portal content will be appended.
+    /// </summary>
+    [Parameter]
+    public string Target { get; set; } = "body";
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    private string? Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+           "import", "./_content/Blazix/blazix-portal.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+
+                if (module != null)
+                {
+                    await module.InvokeVoidAsync("createPortal", Id, Target);
+                    hasRendered = true;
+                    StateHasChanged();
+
+                }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (moduleTask.IsValueCreated)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                if (module != null)
+                {
+                    _ = module.InvokeVoidAsync("restorePortal", Id);
+                    await module.DisposeAsync();
+                }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+        }
+    }
+}
