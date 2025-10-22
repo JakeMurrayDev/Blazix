@@ -1,0 +1,277 @@
+﻿@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
+@using System.Globalization
+
+@implements IDisposable
+
+@inject IJSRuntime JSRuntime
+@inject ILogger<RovingFocusGroupItem> Logger
+
+@ChildContent
+
+@code {
+    private readonly static string defaultId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private DotNetObjectReference<RovingFocusGroupItem>? dotNetReference;
+    private ElementReference? itemElement;
+    private bool keyDownPrevented;
+
+    private string EffectiveId => TabStopId ?? defaultId ?? string.Empty;
+    private bool IsCurrentTabStop => Context.CurrentTabStopId == EffectiveId;
+
+    [CascadingParameter]
+    private IRovingFocusGroupContext Context { get; set; } = default!;
+
+    /// <summary>
+    /// Gets or sets the identifier for this item. If not provided, an automatic ID will be generated.
+    /// </summary>
+    [Parameter]
+    public string? TabStopId { get; set; }
+
+    /// <summary>
+    /// Determines whether this item can receive focus.
+    /// </summary>
+    [Parameter]
+    public bool Focusable { get; set; } = true;
+
+    /// <summary>
+    /// Determines whether this item is currently active/selected.
+    /// </summary>
+    [Parameter]
+    public bool Active { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets the tab index for this item based on whether it is the current tab stop.
+    /// </summary>
+    public int TabIndex => IsCurrentTabStop ? 0 : -1;
+
+    /// <summary>
+    /// Determines whether the most recent keydown event was prevented.
+    /// </summary>
+    public bool KeyDownPrevented => keyDownPrevented;
+
+    /// <summary>
+    /// Gets the data-orientation attribute value based on the context's orientation.
+    /// </summary>
+    public string? DataOrientation => Context.Orientation.ToDataAttributeString();
+
+    /// <summary>
+    /// Gets the element reference for this item.
+    /// </summary>
+    public ElementReference? Element => itemElement;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context == null)
+        {
+            throw new InvalidOperationException(
+                $"'{nameof(RovingFocusGroupItem)}' must be used within a '{nameof(RovingFocusGroup)}'.");
+        }
+
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-roving-focus-group.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Context.RegisterItem(this);
+        }
+    }
+
+    /// <inheritdoc />
+    public void Dispose()
+    {
+        Context.UnregisterItem(this);
+        dotNetReference?.Dispose();
+    }
+
+    /// <summary>
+    /// Sets the element reference for this item.
+    /// </summary>
+    /// <param name="element">The element reference to set.</param>
+    public void SetElement(ElementReference? element)
+    {
+        itemElement = element;
+    }
+
+    /// <summary>
+    /// Method to initialize the roving focus functionality for this item.
+    /// </summary>
+    /// <returns></returns>
+    public async Task InitializeAsync()
+    {
+        if (itemElement.HasValue)
+        {
+            try
+            {
+                var module = await moduleTask!.Value;
+                dotNetReference = DotNetObjectReference.Create(this);
+                await module.InvokeVoidAsync("initializeRovingFocusGroupItem",
+                    itemElement.Value,
+                    Focusable,
+                    dotNetReference);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
+            {
+                // Swallow
+            }
+        }
+    }
+
+    /// <summary>
+    /// Method invoked by JavaScript when a keydown event occurs on this item.
+    /// </summary>
+    /// <param name="e"></param>
+    /// <returns></returns>
+    public async Task OnKeyDown(KeyboardEventArgs e)
+    {
+        keyDownPrevented = false;
+
+        if (e.Key == "Tab" && e.ShiftKey)
+        {
+            Context.OnItemShiftTab();
+            return;
+        }
+
+        var focusIntent = GetFocusIntent(e.Key, Context.Orientation,
+            Context.ReadingDirection);
+
+        if (focusIntent != FocusIntent.Undefined)
+        {
+            if (e.MetaKey || e.CtrlKey || e.AltKey || e.ShiftKey)
+            {
+                return;
+            }
+
+            keyDownPrevented = true;
+
+            var items = Context.GetFocusableItems();
+            var candidateNodes = items
+                .Where(x => x.Element.HasValue)
+                .Select(x => x.Element!.Value)
+                .ToArray();
+
+            if (focusIntent == FocusIntent.Last)
+            {
+                candidateNodes = candidateNodes.Reverse().ToArray();
+            }
+            else if (focusIntent is FocusIntent.Prev or FocusIntent.Next)
+            {
+                if (focusIntent == FocusIntent.Prev)
+                {
+                    candidateNodes = candidateNodes.Reverse().ToArray();
+                }
+
+                var currentIndex = Array.IndexOf(candidateNodes, itemElement!.Value);
+                if (currentIndex >= 0)
+                {
+                    candidateNodes = Context.Loop
+                        ? WrapArray(candidateNodes, currentIndex + 1)
+                        : candidateNodes.Skip(currentIndex + 1).ToArray();
+                }
+            }
+
+            if (candidateNodes.Length > 0)
+            {
+                try
+                {
+                    var module = await moduleTask!.Value;
+                    await module.InvokeVoidAsync("focusFirst", candidateNodes, false);
+                }
+                catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
+                {
+                    // Swallow
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Method to programmatically focus this item.
+    /// </summary>
+    public void Focus()
+    {
+        Context.OnItemFocus(EffectiveId);
+    }
+
+    /// <summary>
+    /// Method invoked when this item is clicked.
+    /// </summary>
+    public void OnMouseDown()
+    {
+        if (Focusable)
+        {
+            Context.OnItemFocus(EffectiveId);
+        }
+    }
+
+    private static string GetDirectionAwareKey(string key, ReadingDirection dir)
+    {
+        if (dir != ReadingDirection.RightToLeft)
+        {
+            return key;
+        }
+        return key switch
+        {
+            "ArrowLeft" => "ArrowRight",
+            "ArrowRight" => "ArrowLeft",
+            _ => key
+        };
+    }
+
+    private static FocusIntent GetFocusIntent(string key, Orientation orientation,
+        ReadingDirection dir)
+    {
+        var directionAwareKey = GetDirectionAwareKey(key, dir);
+
+        if (orientation == Orientation.Vertical &&
+            (directionAwareKey is "ArrowLeft" or "ArrowRight"))
+        {
+            return FocusIntent.Undefined;
+        }
+
+        if (orientation == Orientation.Horizontal &&
+            (directionAwareKey is "ArrowUp" or "ArrowDown"))
+        {
+            return FocusIntent.Undefined;
+        }
+
+        return directionAwareKey switch
+        {
+            "ArrowLeft" => FocusIntent.Prev,
+            "ArrowUp" => FocusIntent.Prev,
+            "ArrowRight" => FocusIntent.Next,
+            "ArrowDown" => FocusIntent.Next,
+            "PageUp" => FocusIntent.First,
+            "Home" => FocusIntent.First,
+            "PageDown" => FocusIntent.Last,
+            "End" => FocusIntent.Last,
+            _ => FocusIntent.Undefined
+        };
+    }
+
+    private static T[] WrapArray<T>(T[] array, int startIndex)
+    {
+        if (array.Length == 0)
+        {
+            return Array.Empty<T>();
+        }
+
+        var result = new T[array.Length];
+        for (var i = 0; i < array.Length; i++)
+        {
+            result[i] = array[(startIndex + i) % array.Length];
+        }
+        return result;
+    }
+}
