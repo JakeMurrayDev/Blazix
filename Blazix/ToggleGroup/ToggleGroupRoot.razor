@@ -1,4 +1,4 @@
-@using Blazix.FocusGroup
+@using Blazix.RovingFocusGroup
 @using Blazix.Services
 
 @typeparam TValue
@@ -12,28 +12,33 @@
         rovingFocusEnabled: RovingFocus,
         selectedValue: CurrentValue,
         selectedValues: CurrentValues?.ToArray(),
-        onItemToggled: HandleItemToggledAsync
+        onItemToggled: HandleItemToggled
     );
 }
 
-<FocusGroup Orientation="Orientation"
-            ReadingDirection="ReadingDirection"
-            Loop="RovingFocus">
+<RovingFocusGroupRoot @ref="rovingFocusGroup"
+                  Orientation="Orientation"
+                  ReadingDirection="ReadingDirection"
+                  Loop="RovingFocus"
+                  CurrentTabStopId="@CurrentValue?.ToString()">
     <CascadingValue Value="currentContext">
         <div role="group"
              dir="@ReadingDirectionDataAttribute"
-             data-orientation="@(RovingFocus? OrientationDataAttribute : null)"
+             data-orientation="@(RovingFocus ? OrientationDataAttribute : null)"
+             tabindex="@(RovingFocus ? rovingFocusGroup?.TabIndex : null)"
+             style="@CombineStyles(AdditionalAttributes, RovingFocus ? rovingFocusGroup?.Style : null)"
              @attributes="AdditionalAttributes"
              @ref="Element">
             @ChildContent
         </div>
     </CascadingValue>
-</FocusGroup>
+</RovingFocusGroupRoot>
 
 @code {
     private bool multipleCached;
     private TValue? internalValue;
     private IEnumerable<TValue>? internalValues;
+    private RovingFocusGroupRoot? rovingFocusGroup;
 
     private bool ControlledSingle => ValueChanged.HasDelegate;
 
@@ -164,7 +169,17 @@
         }
     }
 
-    private Task HandleItemToggledAsync(TValue itemValue, bool pressed)
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && RovingFocus)
+        {
+            rovingFocusGroup?.SetElement(Element);
+            await (rovingFocusGroup?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+
+    private Task HandleItemToggled(TValue itemValue, bool pressed)
     {
         if (Disabled) return Task.CompletedTask;
 
@@ -192,7 +207,7 @@
                 internalValues = currentSelectedValues;
             }
         }
-        else // Single
+        else
         {
             TValue? newValue;
 

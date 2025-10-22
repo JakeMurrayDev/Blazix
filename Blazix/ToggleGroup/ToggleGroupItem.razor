@@ -1,16 +1,19 @@
-@using Blazix.FocusGroup
+@using Blazix.RovingFocusGroup
 @using Blazix.Toggle
 
 @typeparam TValue
 
-<FocusGroupItem @ref="focusGroupItem">
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      TabStopId="Id"
+                      Focusable="!IsActuallyDisabled"
+                      Active="IsPressed">
     @ToggleRootContent()
-</FocusGroupItem>
+</RovingFocusGroupItem>
 
 @code {
     private readonly string defaultId = $"blx-togglegroupitem-{Guid.NewGuid():N}";
 
-    private FocusGroupItem? focusGroupItem;
+    private RovingFocusGroupItem? rovingFocusGroupItem;
     private ToggleRoot? toggle;
 
     private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
@@ -79,11 +82,12 @@
     }
 
     /// <inheritdoc />
-    protected override void OnAfterRender(bool firstRender)
+    protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
+        if (firstRender && Context?.RovingFocusEnabled == true)
         {
-            focusGroupItem?.SetElement(Element);
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
         }
     }
 
@@ -95,28 +99,41 @@
 
     private Task HandleKeyDownAsync(KeyboardEventArgs e)
     {
-        if (Context == null || !Context.RovingFocusEnabled || IsActuallyDisabled) return Task.CompletedTask;
-        return focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
+        if (Context == null || !Context.RovingFocusEnabled || IsActuallyDisabled)
+            return Task.CompletedTask;
+        return rovingFocusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
     }
 
-    private void HandleFocus() => focusGroupItem?.Focus();
+    private void HandleFocus() => rovingFocusGroupItem?.Focus();
 
-    private void HandleBlur() => focusGroupItem?.Blur();
+    private void HandleMouseDown() => rovingFocusGroupItem?.OnMouseDown();
 
     private RenderFragment ToggleRootContent() => builder =>
     {
         builder.OpenComponent<ToggleRoot>(0);
         builder.AddComponentParameter(1, nameof(ToggleRoot.Pressed), IsPressed);
-        builder.AddComponentParameter(2, nameof(ToggleRoot.PressedChanged), EventCallback.Factory.Create<bool>(this, HandlePressedInternalAsync));
+        builder.AddComponentParameter(2, nameof(ToggleRoot.PressedChanged),
+            EventCallback.Factory.Create<bool>(this, HandlePressedInternalAsync));
         builder.AddComponentParameter(3, nameof(ToggleRoot.Disabled), IsActuallyDisabled);
         builder.AddComponentParameter(4, nameof(ToggleRoot.ChildContent), ChildContent);
         builder.AddMultipleAttributes(5, AdditionalAttributes);
         builder.AddAttribute(6, "id", Id);
-        builder.AddAttribute(7, "onkeydown", EventCallback.Factory.Create<KeyboardEventArgs>(this, HandleKeyDownAsync));
-        builder.AddEventPreventDefaultAttribute(8, "onkeydown", focusGroupItem?.KeyDownPrevented ?? false);
-        builder.AddAttribute(9, "onfocus", EventCallback.Factory.Create(this, HandleFocus));
-        builder.AddAttribute(10, "onblur", EventCallback.Factory.Create(this, HandleBlur));
-        builder.AddComponentReferenceCapture(11, r => toggle = (ToggleRoot)r);
+
+        if (Context?.RovingFocusEnabled == true)
+        {
+            builder.AddAttribute(7, "tabindex", rovingFocusGroupItem?.TabIndex);
+            builder.AddAttribute(8, "data-orientation", rovingFocusGroupItem?.DataOrientation);
+            builder.AddAttribute(9, "onkeydown",
+                EventCallback.Factory.Create<KeyboardEventArgs>(this, HandleKeyDownAsync));
+            builder.AddEventPreventDefaultAttribute(10, "onkeydown",
+                rovingFocusGroupItem?.KeyDownPrevented ?? false);
+            builder.AddAttribute(11, "onfocus",
+                EventCallback.Factory.Create(this, HandleFocus));
+            builder.AddAttribute(12, "onmousedown",
+                EventCallback.Factory.Create(this, HandleMouseDown));
+        }
+
+        builder.AddComponentReferenceCapture(13, r => toggle = (ToggleRoot)r);
         builder.CloseComponent();
     };
 }
