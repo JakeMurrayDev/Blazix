@@ -1,4 +1,4 @@
-﻿﻿@using System.Globalization
+﻿@using System.Globalization
 @using Microsoft.JSInterop
 @using System.Diagnostics.CodeAnalysis
 
@@ -18,6 +18,9 @@
     private readonly string defaultId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
     private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private bool hasRendered;
+    private bool disposed;
+
+    private string? Id => GetIdOrDefault(AdditionalAttributes, defaultId);
 
     /// <summary>
     /// Gets or sets the CSS selector of the target element to which the portal content will be appended.
@@ -46,8 +49,6 @@
     [DisallowNull]
     public ElementReference? Element { get; protected set; }
 
-    private string? Id => GetIdOrDefault(AdditionalAttributes, defaultId);
-
     /// <inheritdoc />
     protected override void OnInitialized()
     {
@@ -64,33 +65,41 @@
             {
                 var module = await moduleTask.Value;
 
-                if (module != null)
+                if (module is not null && !disposed)
                 {
                     await module.InvokeVoidAsync("createPortal", Id, Target);
                     hasRendered = true;
                     StateHasChanged();
-
                 }
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
+        if (disposed)
+        {
+            return;
+        }
+
+        disposed = true;
+
         if (moduleTask.IsValueCreated)
         {
             try
             {
                 var module = await moduleTask.Value;
-                if (module != null)
+
+                if (module is not null)
                 {
+                    // Fire-and-forget: awaiting causes Blazor disposal conflicts
                     _ = module.InvokeVoidAsync("restorePortal", Id);
                     await module.DisposeAsync();
                 }
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 }
