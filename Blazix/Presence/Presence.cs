@@ -14,7 +14,8 @@ public class Presence : ComponentBase, IAsyncDisposable
     private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private DotNetObjectReference<Presence>? dotNetObjectReference;
     private PresenceState state;
-    private bool hasStateChangedSinceLastRender;
+    private bool previousPresent;
+    private bool pendingAnimationCheck;
 
     private bool IsPresentInDom => state is PresenceState.Mounted or PresenceState.UnmountSuspended;
 
@@ -51,7 +52,6 @@ public class Presence : ComponentBase, IAsyncDisposable
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
-
     /// <summary>
     /// Gets or sets the associated <see cref="ElementReference"/>.
     /// <para>
@@ -68,14 +68,15 @@ public class Presence : ComponentBase, IAsyncDisposable
         moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
             "import", "./_content/Blazix/blazix-presence.js").AsTask());
         state = Present ? PresenceState.Mounted : PresenceState.Unmounted;
+        previousPresent = Present;
     }
 
     /// <inheritdoc />
     protected override void OnParametersSet()
     {
-        var wasPresent = state is PresenceState.Mounted;
-        if (wasPresent != Present)
+        if (previousPresent != Present)
         {
+            previousPresent = Present;
             Send(Present ? PresenceEvent.Mount : PresenceEvent.AnimationOut);
         }
     }
@@ -83,7 +84,7 @@ public class Presence : ComponentBase, IAsyncDisposable
     /// <inheritdoc />
     protected override void BuildRenderTree(RenderTreeBuilder builder)
     {
-        if(IsPresentInDom)
+        if (IsPresentInDom)
         {
             builder.OpenElement(0, As);
             builder.AddMultipleAttributes(1, AdditionalAttributes);
@@ -96,20 +97,20 @@ public class Presence : ComponentBase, IAsyncDisposable
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (hasStateChangedSinceLastRender && state == PresenceState.UnmountSuspended && Element.HasValue)
+        if (pendingAnimationCheck && state == PresenceState.UnmountSuspended && Element.HasValue)
         {
+            pendingAnimationCheck = false;
             try
             {
                 var module = await moduleTask.Value;
                 await module.InvokeVoidAsync("checkForExitAnimationAndListen", Element, dotNetObjectReference);
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
             catch (Exception ex)
             {
                 Logger.LogError(ex, "Failed to check for exit animation.");
             }
         }
-        hasStateChangedSinceLastRender = false;
     }
 
     /// <inheritdoc />
@@ -127,10 +128,9 @@ public class Presence : ComponentBase, IAsyncDisposable
                 }
                 await module.DisposeAsync();
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
-
 
     /// <summary>
     /// Invoked in javascript when the animation has completed.
@@ -171,9 +171,37 @@ public class Presence : ComponentBase, IAsyncDisposable
 
         if (state != nextState)
         {
+            var wasUnmountSuspended = state == PresenceState.UnmountSuspended;
             state = nextState;
-            hasStateChangedSinceLastRender = true;
+
+            if (nextState == PresenceState.UnmountSuspended)
+            {
+                pendingAnimationCheck = true;
+            }
+            else if (wasUnmountSuspended && nextState == PresenceState.Mounted)
+            {
+                // Interrupted exit animation - clean up listeners via JS
+                pendingAnimationCheck = false;
+                _ = CleanupInterruptedAnimation();
+            }
+
             InvokeAsync(StateHasChanged);
+        }
+    }
+
+    private async Task CleanupInterruptedAnimation()
+    {
+        if (!Element.HasValue) return;
+
+        try
+        {
+            var module = await moduleTask.Value;
+            await module.InvokeVoidAsync("cancelExitAnimation", Element);
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to cleanup interrupted animation.");
         }
     }
 }

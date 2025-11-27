@@ -10,16 +10,23 @@ function getAnimationName(styles) {
 
 function handleAnimationEnd(element, dotnetHelper, event) {
     const listenerInfo = state.elementData.get(element);
-    if (!listenerInfo) return;
+    if (!listenerInfo || listenerInfo.cancelled) return;
 
     const currentAnimationName = getAnimationName(window.getComputedStyle(element));
-
     const isCurrentAnimation = currentAnimationName.includes(event.animationName);
 
     if (event.target === element && isCurrentAnimation) {
+        const currentFillMode = element.style.animationFillMode;
         element.style.animationFillMode = 'forwards';
 
         removeEventListeners(element);
+
+        // Reset fill mode after unmount has time to process
+        setTimeout(() => {
+            if (element.style.animationFillMode === 'forwards') {
+                element.style.animationFillMode = currentFillMode;
+            }
+        });
 
         if (dotnetHelper) {
             dotnetHelper.invokeMethodAsync('OnAnimationEnd');
@@ -29,11 +36,13 @@ function handleAnimationEnd(element, dotnetHelper, event) {
 
 function removeEventListeners(element) {
     if (!element || !state.elementData.has(element)) return;
-    const { startHandler, endHandler } = state.elementData.get(element);
-    element.removeEventListener('animationstart', startHandler);
-    element.removeEventListener('animationend', endHandler);
-    element.removeEventListener('animationcancel', endHandler);
-    element.removeEventListener('transitionend', endHandler);
+    const info = state.elementData.get(element);
+    if (info.startHandler) element.removeEventListener('animationstart', info.startHandler);
+    if (info.endHandler) {
+        element.removeEventListener('animationend', info.endHandler);
+        element.removeEventListener('animationcancel', info.endHandler);
+        element.removeEventListener('transitionend', info.endHandler);
+    }
     state.elementData.delete(element);
 }
 
@@ -46,19 +55,20 @@ function removeEventListeners(element) {
 export function checkForExitAnimationAndListen(element, dotnetHelper) {
     if (!element || !dotnetHelper) return;
 
+    // Clean up any existing listeners first
+    removeEventListeners(element);
+
     const styles = window.getComputedStyle(element);
-    const hasAnimation =
-        styles.animationName !== 'none' || styles.transitionDuration !== '0s';
+    const hasAnimation = styles.animationName !== 'none' || styles.transitionDuration !== '0s';
 
     if (hasAnimation) {
         const endHandler = (event) => handleAnimationEnd(element, dotnetHelper, event);
         const startHandler = (event) => {
             if (event.target === element) {
-                const listenerInfo = state.elementData.get(element) || {};
-                listenerInfo.currentAnimationName = getAnimationName(
-                    window.getComputedStyle(element),
-                );
-                state.elementData.set(element, listenerInfo);
+                const listenerInfo = state.elementData.get(element);
+                if (listenerInfo) {
+                    listenerInfo.currentAnimationName = getAnimationName(window.getComputedStyle(element));
+                }
             }
         };
 
@@ -67,15 +77,35 @@ export function checkForExitAnimationAndListen(element, dotnetHelper) {
         element.addEventListener('animationcancel', endHandler);
 
         state.elementData.set(element, {
-            handler: endHandler,
             startHandler,
             endHandler,
             dotnetHelper,
+            cancelled: false
         });
     } else {
-        // If there's no animation, unmount immediately.
         dotnetHelper.invokeMethodAsync('UnmountImmediately');
     }
+}
+
+/**
+ * Called when an exit animation is interrupted by a re-mount.
+ * Cancels the pending animation end callback and resets styles.
+ * @param {HTMLElement} element The element being re-mounted.
+ */
+export function cancelExitAnimation(element) {
+    if (!element) return;
+
+    const info = state.elementData.get(element);
+    if (info) {
+        info.cancelled = true;
+    }
+
+    // Reset animation fill mode if it was set to forwards
+    if (element.style.animationFillMode === 'forwards') {
+        element.style.animationFillMode = '';
+    }
+
+    removeEventListeners(element);
 }
 
 export function removePresenceEventListeners(element) {
