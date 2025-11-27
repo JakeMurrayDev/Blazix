@@ -1,0 +1,108 @@
+﻿@using Blazix.RovingFocusGroup
+@using System.Globalization
+@using System.Diagnostics.CodeAnalysis
+
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="!Disabled"
+                      Active="IsSelected"
+                      TabStopId="@Value">
+    <button type="button"
+            role="tab"
+            aria-selected=@(IsSelected.ToString(CultureInfo.InvariantCulture))
+            aria-controls=@contentId
+            data-state=@(IsSelected ? "active" : "inactive")
+            data-disabled=@(Disabled ? string.Empty : "undefined")
+            disabled=@Disabled
+            id=@triggerId
+            @attributes="AdditionalAttributes"
+            @onmousedown="HandleMouseDown"
+            @onmousedown:preventDefault=@mouseDownPreventDefault
+            @onkeydown="HandleKeyDown"
+            @onfocus="HandleFocus"
+            @ref="Element">
+        @ChildContent
+    </button>
+</RovingFocusGroupItem>
+
+@code {
+    private RovingFocusGroupItem? rovingFocusGroupItem;
+    private string? triggerId;
+    private string? contentId;
+    private bool mouseDownPreventDefault;
+
+    private bool IsSelected => Context != null && Context.Value == Value;
+
+    [CascadingParameter]
+    private TabsContext? Context { get; set; }
+
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = default!;
+
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(TabsTrigger)}' must have an ancestor '{nameof(TabsRoot)}' that provides a '{nameof(TabsContext)}'.");
+        }
+
+        triggerId = TabsHelper.MakeTriggerId(Context.BaseId, Value);
+        contentId = TabsHelper.MakeContentId(Context.BaseId, Value);
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+
+    private void HandleMouseDown(MouseEventArgs e)
+    {
+        mouseDownPreventDefault = false;
+
+        if (!Disabled && e.Button == 0 && !e.CtrlKey)
+        {
+            Context!.OnValueChange(Value);
+        }
+        else
+        {
+            mouseDownPreventDefault = true;
+        }
+
+        rovingFocusGroupItem?.OnMouseDown();
+    }
+
+    private Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (!Disabled && e.Key is " " or "Enter")
+        {
+            Context!.OnValueChange(Value);
+        }
+
+        return rovingFocusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
+    }
+
+    private void HandleFocus()
+    {
+        if (!IsSelected && !Disabled && Context!.ActivationMode == ActivationMode.Automatic)
+        {
+            Context!.OnValueChange(Value);
+        }
+        rovingFocusGroupItem?.Focus();
+    }
+}

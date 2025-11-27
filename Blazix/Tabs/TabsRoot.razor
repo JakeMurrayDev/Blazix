@@ -1,0 +1,101 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.Services
+
+@inject IReadingDirectionService ReadingDirectionService
+
+<CascadingValue Value="Context">
+    <div dir="@ReadingDirection.ToDataAttributeString()"
+         data-orientation="@Orientation.ToDataAttributeString()"
+         @attributes="AdditionalAttributes"
+         @ref="Element">
+        @ChildContent
+    </div>
+</CascadingValue>
+
+@code {
+    private readonly string defaultId = $"blx-{Guid.NewGuid():N}";
+
+    private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
+
+    private TabsContext? Context { get; set; }
+
+    private bool IsControlled => ValueChanged.HasDelegate;
+
+    /// <summary>
+    /// Gets or sets the currently selected tab, if controlled.
+    /// </summary>
+    [Parameter]
+    public string? Value { get; set; }
+
+    /// <summary>
+    /// Gets or sets the default selected tab, if uncontrolled.
+    /// </summary>
+    [Parameter]
+    public string? DefaultValue { get; set; }
+
+    /// <summary>
+    /// Gets or sets the callback that is invoked when the value changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<string?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Gets or sets the orientation the tabs are layed out.
+    /// <para>Mainly so arrow navigation is done accordingly (left and right vs. up and down).</para>
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>
+    /// Gets or sets the direction of navigation between toolbar items.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// Determines whether a tab is activated automatically or manually.
+    /// </summary>
+    [Parameter]
+    public ActivationMode ActivationMode { get; set; }
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    protected override void OnInitialized()
+    {
+        if (ReadingDirection == ReadingDirection.Undefined)
+        {
+            ReadingDirection = ReadingDirectionService.GetReadingDirection();
+        }
+    }
+
+    protected override void OnParametersSet()
+    {
+        Context = new(Id, IsControlled ? DefaultValue : Value, SetValue, Orientation, ReadingDirection, ActivationMode);
+    }
+
+    private void SetValue(string? value)
+    {
+        if (Context is null)
+        {
+            return;
+        }
+
+        Context = Context with { Value = value };
+
+        if (IsControlled)
+        {
+            ValueChanged.InvokeAsync(value);
+        }
+        else
+        {
+            StateHasChanged();
+        }
+    }
+}

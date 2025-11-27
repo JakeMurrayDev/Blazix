@@ -1,0 +1,77 @@
+﻿@using Blazix.Presence
+@using System.Diagnostics.CodeAnalysis
+
+<Presence data-state=@(IsSelected ? "active" : "inactive")
+          data-orientation=@Context!.Orientation.ToDataAttributeString()
+          role="tabpanel"
+          aria-labelledby=@triggerId
+          hidden=@(!IsPresent)
+          id=@contentId
+          tabIndex="0"
+          style=@CombineStyles(AdditionalAttributes, isMountAnimationPrevented ? "animation-duration: 0s;" : null)
+          @attributes="AdditionalAttributes"
+          Present=@IsPresent
+          @ref="presence">
+    @ChildContent
+</Presence>
+
+@code {
+    private Presence? presence;
+    private string? triggerId;
+    private string? contentId;
+    private bool isMountAnimationPrevented = true;
+
+    private bool IsSelected => Context != null && Context.Value == Value;
+    private bool IsPresent => ForceMount || IsSelected;
+
+    [CascadingParameter]
+    private TabsContext? Context { get; set; }
+
+    /// <summary>
+    /// Gets or sets a unique value that associates the content with a trigger.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public string Value { get; set; } = default!;
+
+    /// <summary>
+    /// Used to force mounting when more control is needed. Useful when controlling animations.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element => presence?.Element;
+
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(TabsContent)}' must have an ancestor '{nameof(TabsRoot)}' that provides a '{nameof(TabsContext)}'.");
+        }
+
+        triggerId = TabsHelper.MakeTriggerId(Context.BaseId, Value);
+        contentId = TabsHelper.MakeContentId(Context.BaseId, Value);
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender && isMountAnimationPrevented)
+        {
+            await Task.Yield();
+            isMountAnimationPrevented = false;
+            StateHasChanged();
+        }
+    }
+}

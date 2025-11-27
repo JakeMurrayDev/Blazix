@@ -1,0 +1,50 @@
+﻿@using Blazix.RovingFocusGroup
+@using System.Diagnostics.CodeAnalysis
+
+<RovingFocusGroupRoot @ref="rovingFocusGroup"
+                      Orientation="Context!.Orientation"
+                      ReadingDirection="Context.ReadingDirection"
+                      Loop="Loop"
+                      CurrentTabStopId="@Context.Value">
+    <div role="tablist"
+         aria-orientation="@Context.Orientation.ToDataAttributeString()"
+         tabindex="@(Loop? rovingFocusGroup?.TabIndex : null)"
+         data-orientation="@Context.Orientation.ToDataAttributeString()"
+         @attributes="AdditionalAttributes"
+         style="@CombineStyles(AdditionalAttributes, Loop ? rovingFocusGroup?.Style : null)"
+         @ref="Element">
+        @ChildContent
+    </div>
+</RovingFocusGroupRoot>
+
+@code {
+    private RovingFocusGroupRoot? rovingFocusGroup;
+
+    [CascadingParameter]
+    private TabsContext? Context { get; set; }
+
+    /// <summary>
+    /// Determines whether focus should loop from the tab to first item and vice versa.
+    /// <para>Defaults to <see langword="true"/>.</para>
+    /// </summary>
+    [Parameter]
+    public bool Loop { get; set; } = true;
+
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException($"'{nameof(TabsList)}' must have an ancestor '{nameof(TabsRoot)}' that provides a '{nameof(TabsContext)}'.");
+        }
+    }
+}
