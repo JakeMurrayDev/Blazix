@@ -10,7 +10,7 @@
 </label>
 
 @code {
-    private IJSObjectReference? module;
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private bool disposed;
 
     /// <summary>
@@ -34,14 +34,27 @@
     public ElementReference Element { get; protected set; }
 
     /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+           "import", "./_content/Blazix/blazix-label.js").AsTask());
+    }
+
+    /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender)
         {
-            module ??= await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/Blazix/blazix-label.js");
+            try
+            {
+                var module = await moduleTask.Value;
 
-            await module.InvokeVoidAsync("addLabelMouseDownListener", Element);
+                if (module != null)
+                {
+                    await module.InvokeVoidAsync("addLabelMouseDownListener", Element);
+                }
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
         }
     }
 
@@ -51,18 +64,18 @@
         if (disposed) return;
         disposed = true;
 
-        GC.SuppressFinalize(this);
-
-        if (module != null)
+        if (moduleTask.IsValueCreated)
         {
             try
             {
-                await module.InvokeVoidAsync("removeLabelMouseDownListener", Element);
-                await module.DisposeAsync();
-                module = null;
+                var module = await moduleTask.Value;
+                if (module != null)
+                {
+                    await module.InvokeVoidAsync("removeLabelMouseDownListener", Element);
+                    await module.DisposeAsync();
+                }
             }
-            catch (JSDisconnectedException) { /* Swallow */ }
-            catch (TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
         }
     }
 }
