@@ -2,7 +2,8 @@
 
 @if (canRender && Context is not null && Context.Status != ImageLoadingStatus.Loaded)
 {
-    <span @attributes="AdditionalAttributes" @ref="Element">
+    <span @attributes="AdditionalAttributes"
+          @ref="Element">
         @ChildContent
     </span>
 }
@@ -45,19 +46,15 @@
     /// <inheritdoc />
     protected override void OnInitialized()
     {
-        if (Context is null)
-        {
-            throw new InvalidOperationException(
-                $"{nameof(AvatarFallback)} must be rendered within an {nameof(AvatarRoot)}."
-            );
-        }
-        Context.OnStatusChange += HandleContextStatusChange;
+        ThrowIfContextIsNull();
+
+        Context!.OnStatusChange += HandleContextStatusChange;
     }
 
     /// <inheritdoc />
     protected override async Task OnParametersSetAsync()
     {
-        if (Context is null) return;
+        ThrowIfContextIsNull();
 
         // Re-initialize delay logic if the DelayMs parameter changes,
         // or if the image status changes (handled by HandleContextStatusChange).
@@ -75,14 +72,22 @@
         if (disposed) return;
         disposed = true;
 
-        GC.SuppressFinalize(this);
-
         delayCts?.Cancel();
         delayCts?.Dispose();
 
         if (Context is not null)
         {
             Context.OnStatusChange -= HandleContextStatusChange;
+        }
+    }
+
+    private void ThrowIfContextIsNull()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(AvatarFallback)} must be rendered within an {nameof(AvatarRoot)}."
+            );
         }
     }
 

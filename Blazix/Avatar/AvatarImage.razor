@@ -47,26 +47,16 @@
     /// <inheritdoc />
     protected override void OnInitialized()
     {
-        if (Context == null)
-        {
-            throw new InvalidOperationException(
-                $"{nameof(AvatarImage)} must be used within an {nameof(AvatarRoot)} component that provides a {nameof(AvatarContext)}."
-            );
-        }
+        ThrowIfContextIsNull();
 
         dotNetObjectReference = DotNetObjectReference.Create(this);
-        Context.OnStatusChange += HandleContextStatusChange;
+        Context!.OnStatusChange += HandleContextStatusChange;
     }
 
     /// <inheritdoc />
     protected override async Task OnParametersSetAsync()
     {
-        if (Context == null)
-        {
-            throw new InvalidOperationException(
-                $"{nameof(AvatarImage)} must be used within an {nameof(AvatarRoot)} component that provides a {nameof(AvatarContext)}."
-            );
-        }
+        ThrowIfContextIsNull();
 
         if (!hasRendered) return;
 
@@ -89,20 +79,30 @@
         if (disposed) return;
         disposed = true;
 
-        if (Context != null)
+        if (Context is not null)
         {
             Context.OnStatusChange -= HandleContextStatusChange;
         }
 
         dotNetObjectReference?.Dispose();
 
-        if (module != null)
+        if (module is not null)
         {
             try
             {
                 await module.DisposeAsync();
             }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+        }
+    }
+
+    private void ThrowIfContextIsNull()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"{nameof(AvatarImage)} must be used within an {nameof(AvatarRoot)} component that provides a {nameof(AvatarContext)}."
+            );
         }
     }
 
