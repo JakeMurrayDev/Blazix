@@ -1,17 +1,29 @@
 @using Blazix.Collapsible
+@using Blazix.RovingFocusGroup
 @using System.Diagnostics.CodeAnalysis
 
-<CollapsibleTrigger aria-disabled="@IsAriaDisabled"
-                    id="@ItemContext?.TriggerId"
-                    data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
-                    @attributes="AdditionalAttributes"
-                    @ref="collapsibleTrigger">
-    @ChildContent
-</CollapsibleTrigger>
+@implements IAsyncDisposable
+
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="@(ItemContext?.IsDisabled != true)"
+                      Active="@(ItemContext?.IsOpen == true)">
+    <CollapsibleTrigger aria-disabled="@IsAriaDisabled"
+                        id="@ItemContext?.TriggerId"
+                        data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
+                        tabindex="@rovingFocusGroupItem?.TabIndex"
+                        @attributes="AdditionalAttributes"
+                        @onfocus="HandleFocus"
+                        @onmousedown="HandleMouseDown"
+                        @onkeydown="HandleKeyDown"
+                        @ref="collapsibleTrigger">
+        @ChildContent
+    </CollapsibleTrigger>
+</RovingFocusGroupItem>
 
 @code {
     private ElementReference? element;
     private CollapsibleTrigger? collapsibleTrigger;
+    private RovingFocusGroupItem? rovingFocusGroupItem;
 
     private bool IsAriaDisabled => ItemContext?.IsOpen == true && AccordionContext?.IsCollapsible == false;
 
@@ -52,6 +64,40 @@
         if (ItemContext is null || AccordionContext is null)
         {
             throw new InvalidOperationException($"'{nameof(AccordionTrigger)}' must be used within an '{nameof(__Blazor.Blazix.Accordion.AccordionItem)}'.");
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroupItem?.SetElement(collapsibleTrigger?.Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+
+    /// <inheritdoc />
+    public ValueTask DisposeAsync()
+    {
+        return ValueTask.CompletedTask;
+    }
+
+    private void HandleFocus()
+    {
+        rovingFocusGroupItem?.Focus();
+    }
+
+    private void HandleMouseDown()
+    {
+        rovingFocusGroupItem?.OnMouseDown();
+    }
+
+    private async Task HandleKeyDown(KeyboardEventArgs e)
+    {
+        if (rovingFocusGroupItem is not null)
+        {
+            await rovingFocusGroupItem.OnKeyDown(e);
         }
     }
 }
