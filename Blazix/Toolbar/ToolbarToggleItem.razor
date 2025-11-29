@@ -1,0 +1,117 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
+@using Blazix.ToggleGroup
+@using Blazix.Toggle
+
+@typeparam TValue
+
+@{
+    var toggleContext = Context;
+    bool isPressed = false;
+    bool isActuallyDisabled = Disabled;
+
+    if (toggleContext != null && Value != null)
+    {
+        isPressed = toggleContext.Multiple
+            ? toggleContext.SelectedValues?.Contains(Value) ?? false
+            : EqualityComparer<TValue>.Default.Equals(toggleContext.SelectedValue, Value);
+        isActuallyDisabled = toggleContext.GroupDisabled || Disabled;
+    }
+}
+
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="!isActuallyDisabled"
+                      Active="isPressed">
+    <button type="button"
+            aria-pressed="@isPressed.ToString().ToLowerInvariant()"
+            data-state="@(isPressed ? "on" : "off")"
+            data-disabled="@(isActuallyDisabled ? string.Empty : null)"
+            disabled="@isActuallyDisabled"
+            tabindex="@rovingFocusGroupItem?.TabIndex"
+            data-orientation="@rovingFocusGroupItem?.OrientationDataAttribute"
+            @attributes="AdditionalAttributes"
+            @onclick="HandleClick"
+            @ref="Element">
+        @ChildContent
+    </button>
+</RovingFocusGroupItem>
+
+@code {
+    private RovingFocusGroupItem? rovingFocusGroupItem;
+
+    [CascadingParameter]
+    private ToggleGroupContext<TValue>? Context { get; set; }
+
+    /// <summary>
+    /// A unique value for the item.
+    /// </summary>
+    [Parameter, EditorRequired]
+    public TValue? Value { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, prevents the user from interacting with the item.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{GetType().Name}' must be used within a '{nameof(ToolbarToggleGroup<TValue>)}' " +
+                $"component that provides a '{nameof(ToggleGroupContext<TValue>)}'.");
+        }
+        if (Value is null || Value is string value && string.IsNullOrEmpty(value))
+        {
+            throw new ArgumentException(
+                $"Parameter '{nameof(Value)}' cannot be null or empty.", nameof(Value));
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+
+    private Task HandleClick()
+    {
+        if (Value == null || Context == null) return Task.CompletedTask;
+
+        bool isActuallyDisabled = Context.GroupDisabled || Disabled;
+        if (isActuallyDisabled) return Task.CompletedTask;
+
+        bool isPressed = Context.Multiple
+            ? Context.SelectedValues?.Contains(Value) ?? false
+            : EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+
+        return Context.OnItemToggled(Value, !isPressed);
+    }
+}

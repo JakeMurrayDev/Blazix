@@ -1,0 +1,200 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.ToggleGroup
+
+@typeparam TValue
+
+@{
+    var currentContext = new ToggleGroupContext<TValue>(
+        multiple: Multiple,
+        groupDisabled: Disabled,
+        selectedValue: CurrentValue,
+        selectedValues: CurrentValues?.ToArray(),
+        onItemToggled: HandleItemToggled
+    );
+}
+
+<CascadingValue Value="currentContext">
+    <div role="group"
+         data-orientation="@Context?.Orientation.ToDataAttributeString()"
+         dir="@Context?.ReadingDirection.ToDataAttributeString()"
+         @attributes="AdditionalAttributes"
+         @ref="Element">
+        @ChildContent
+    </div>
+</CascadingValue>
+
+@code {
+    private TValue? internalValue;
+    private IEnumerable<TValue>? internalValues;
+    private bool multipleCached;
+
+    private bool ControlledSingle => ValueChanged.HasDelegate;
+    private bool ControlledMultiple => ValuesChanged.HasDelegate;
+    private TValue? CurrentValue => ControlledSingle ? Value : internalValue;
+    private IEnumerable<TValue>? CurrentValues => ControlledMultiple ? Values : internalValues;
+
+    [CascadingParameter]
+    private ToolbarContext? Context { get; set; }
+
+    /// <summary>
+    /// Determines whether a single or multiple items can be pressed at a time.
+    /// </summary>
+    [Parameter]
+    public bool Multiple { get; set; }
+
+    /// <summary>
+    /// The controlled value of the pressed item when <see cref="Multiple"/> is <see langword="false"/>.
+    /// </summary>
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    /// <summary>
+    /// The event callback for the value of the pressed item when <see cref="Multiple"/> is <see langword="false"/>.
+    /// </summary>
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// The value of the pressed item when initially rendered and <see cref="Multiple"/> is <see langword="false"/>.
+    /// Use when you do not need to control the state of the items.
+    /// </summary>
+    [Parameter]
+    public TValue? DefaultValue { get; set; }
+
+    /// <summary>
+    /// The controlled values of the pressed items when <see cref="Multiple"/> is <see langword="true"/>.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<TValue>? Values { get; set; }
+
+    /// <summary>
+    /// The event callback for the values of the pressed items when <see cref="Multiple"/> is <see langword="true"/>.
+    /// </summary>
+    [Parameter]
+    public EventCallback<IEnumerable<TValue>?> ValuesChanged { get; set; }
+
+    /// <summary>
+    /// The values of the pressed items when initially rendered and <see cref="Multiple"/> is <see langword="true"/>.
+    /// Use when you do not need to control the state of the items.
+    /// </summary>
+    [Parameter]
+    public IEnumerable<TValue>? DefaultValues { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, prevents the user from interacting with the toggle group and all its items.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (!ControlledSingle)
+        {
+            internalValue = DefaultValue;
+        }
+        if (!ControlledMultiple)
+        {
+            internalValues = DefaultValues ?? [];
+        }
+        multipleCached = Multiple;
+    }
+
+    /// <inheritdoc />
+    protected override void OnParametersSet()
+    {
+        if (Multiple != multipleCached)
+        {
+            if (!ControlledSingle) internalValue = DefaultValue;
+            else if (ValueChanged.HasDelegate) ValueChanged.InvokeAsync(DefaultValue);
+
+            if (!ControlledMultiple) internalValues = DefaultValues ?? [];
+            else if (ValuesChanged.HasDelegate) ValuesChanged.InvokeAsync(DefaultValues ?? []);
+
+            multipleCached = Multiple;
+        }
+    }
+
+    private Task HandleItemToggled(TValue itemValue, bool pressed)
+    {
+        if (Disabled) return Task.CompletedTask;
+
+        if (Multiple)
+        {
+            var currentSelectedValues = new List<TValue>(CurrentValues ?? []);
+            if (pressed)
+            {
+                if (!currentSelectedValues.Contains(itemValue))
+                {
+                    currentSelectedValues.Add(itemValue);
+                }
+            }
+            else
+            {
+                currentSelectedValues.Remove(itemValue);
+            }
+
+            if (ControlledMultiple)
+            {
+                return ValuesChanged.InvokeAsync(currentSelectedValues);
+            }
+            else
+            {
+                internalValues = currentSelectedValues;
+            }
+        }
+        else
+        {
+            TValue? newValue;
+
+            if (pressed)
+            {
+                newValue = itemValue;
+            }
+            else
+            {
+                newValue = !EqualityComparer<TValue>.Default.Equals(CurrentValue, itemValue)
+                    ? CurrentValue
+                    : default;
+            }
+
+            if (ControlledSingle)
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(Value, newValue))
+                {
+                    return ValueChanged.InvokeAsync(newValue);
+                }
+            }
+            else
+            {
+                if (!EqualityComparer<TValue>.Default.Equals(internalValue, newValue))
+                {
+                    internalValue = newValue;
+                }
+            }
+        }
+
+        return InvokeAsync(StateHasChanged);
+    }
+}

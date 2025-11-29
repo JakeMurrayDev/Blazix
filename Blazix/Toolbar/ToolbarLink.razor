@@ -1,0 +1,94 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
+@using Microsoft.JSInterop
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="true">
+    <a tabindex="@rovingFocusGroupItem?.TabIndex"
+       data-orientation="@rovingFocusGroupItem?.OrientationDataAttribute"
+       @attributes="AdditionalAttributes"
+       @ref="Element">
+        @ChildContent
+    </a>
+</RovingFocusGroupItem>
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private RovingFocusGroupItem? rovingFocusGroupItem;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-toolbar.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+
+            if (Element.HasValue)
+            {
+                try
+                {
+                    var module = await moduleTask!.Value;
+                    await module.InvokeVoidAsync("initializeToolbarLink", Element.Value);
+                }
+                catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
+                {
+                    // Swallow
+                }
+            }
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (moduleTask?.IsValueCreated == true)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                if (Element.HasValue)
+                {
+                    await module.InvokeVoidAsync("disposeToolbarLink", Element.Value);
+                }
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException)
+            {
+                // Swallow
+            }
+        }
+    }
+}

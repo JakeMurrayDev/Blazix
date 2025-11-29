@@ -1,0 +1,55 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
+
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="!Disabled">
+    <button type="button"
+            disabled="@Disabled"
+            tabindex="@rovingFocusGroupItem?.TabIndex"
+            data-orientation="@rovingFocusGroupItem?.OrientationDataAttribute"
+            @attributes="AdditionalAttributes"
+            @ref="Element">
+        @ChildContent
+    </button>
+</RovingFocusGroupItem>
+
+@code {
+    private RovingFocusGroupItem? rovingFocusGroupItem;
+
+    /// <summary>
+    /// When <see langword="true"/>, prevents the user from interacting with the button.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+}

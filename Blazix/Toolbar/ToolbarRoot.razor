@@ -1,0 +1,84 @@
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
+@using Blazix.Services
+
+@inject IReadingDirectionService ReadingDirectionService
+
+@{
+    var effectiveDirection = ReadingDirection == ReadingDirection.Undefined
+        ? ReadingDirectionService.GetReadingDirection()
+        : ReadingDirection;
+
+    var toolbarContext = new ToolbarContext(Orientation, effectiveDirection);
+}
+
+<RovingFocusGroupRoot @ref="rovingFocusGroup"
+                      Orientation="Orientation"
+                      ReadingDirection="effectiveDirection"
+                      Loop="Loop">
+    <CascadingValue Value="toolbarContext">
+        <div role="toolbar"
+             aria-orientation="@Orientation.ToDataAttributeString()"
+             dir="@effectiveDirection.ToDataAttributeString()"
+             tabindex="@rovingFocusGroup?.TabIndex"
+             style="@CombineStyles(AdditionalAttributes, rovingFocusGroup?.Style)"
+             @attributes="AdditionalAttributes"
+             @ref="Element">
+            @ChildContent
+        </div>
+    </CascadingValue>
+</RovingFocusGroupRoot>
+
+@code {
+    private RovingFocusGroupRoot? rovingFocusGroup;
+
+    /// <summary>
+    /// The orientation of the toolbar.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; } = Orientation.Horizontal;
+
+    /// <summary>
+    /// The reading direction of the toolbar. If omitted, inherits globally
+    /// from <see cref="IReadingDirectionService"/> or assumes LTR.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// When <see langword="true"/>, keyboard navigation will loop from last to first and vice versa.
+    /// </summary>
+    [Parameter]
+    public bool Loop { get; set; } = true;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroup?.SetElement(Element);
+            await (rovingFocusGroup?.InitializeAsync() ?? Task.CompletedTask);
+        }
+    }
+}
