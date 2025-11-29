@@ -4,7 +4,7 @@
 @typeparam TValue
 
 <RovingFocusGroupItem @ref="rovingFocusGroupItem"
-                      TabStopId="Id"
+                      TabStopId="@Id"
                       Focusable="!IsActuallyDisabled"
                       Active="IsPressed">
     @ToggleRootContent()
@@ -24,7 +24,9 @@
         {
             if (Context != null && Value != null)
             {
-                return Context.Multiple ? Context.SelectedValues?.Contains(Value) ?? false : EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+                return Context.Multiple
+                    ? Context.SelectedValues?.Contains(Value) ?? false
+                    : EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
             }
 
             return false;
@@ -84,7 +86,7 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && Context?.RovingFocusEnabled == true)
+        if (firstRender)
         {
             rovingFocusGroupItem?.SetElement(Element);
             await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
@@ -93,47 +95,25 @@
 
     private Task HandlePressedInternalAsync(bool pressed)
     {
-        if (Value == null || Context == null || IsActuallyDisabled) return Task.CompletedTask;
+        if (Value == null || Context == null || IsActuallyDisabled)
+        {
+            return Task.CompletedTask;
+        }
         return Context.OnItemToggled(Value, pressed);
     }
-
-    private Task HandleKeyDownAsync(KeyboardEventArgs e)
-    {
-        if (Context == null || !Context.RovingFocusEnabled || IsActuallyDisabled)
-            return Task.CompletedTask;
-        return rovingFocusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
-    }
-
-    private void HandleFocus() => rovingFocusGroupItem?.Focus();
-
-    private void HandleMouseDown() => rovingFocusGroupItem?.OnMouseDown();
 
     private RenderFragment ToggleRootContent() => builder =>
     {
         builder.OpenComponent<ToggleRoot>(0);
         builder.AddComponentParameter(1, nameof(ToggleRoot.Pressed), IsPressed);
-        builder.AddComponentParameter(2, nameof(ToggleRoot.PressedChanged),
-            EventCallback.Factory.Create<bool>(this, HandlePressedInternalAsync));
+        builder.AddComponentParameter(2, nameof(ToggleRoot.PressedChanged), EventCallback.Factory.Create<bool>(this, HandlePressedInternalAsync));
         builder.AddComponentParameter(3, nameof(ToggleRoot.Disabled), IsActuallyDisabled);
         builder.AddComponentParameter(4, nameof(ToggleRoot.ChildContent), ChildContent);
-        builder.AddMultipleAttributes(5, AdditionalAttributes);
-        builder.AddAttribute(6, "id", Id);
-
-        if (Context?.RovingFocusEnabled == true)
-        {
-            builder.AddAttribute(7, "tabindex", rovingFocusGroupItem?.TabIndex);
-            builder.AddAttribute(8, "data-orientation", rovingFocusGroupItem?.DataOrientation);
-            builder.AddAttribute(9, "onkeydown",
-                EventCallback.Factory.Create<KeyboardEventArgs>(this, HandleKeyDownAsync));
-            builder.AddEventPreventDefaultAttribute(10, "onkeydown",
-                rovingFocusGroupItem?.KeyDownPrevented ?? false);
-            builder.AddAttribute(11, "onfocus",
-                EventCallback.Factory.Create(this, HandleFocus));
-            builder.AddAttribute(12, "onmousedown",
-                EventCallback.Factory.Create(this, HandleMouseDown));
-        }
-
-        builder.AddComponentReferenceCapture(13, r => toggle = (ToggleRoot)r);
+        builder.AddAttribute(5, "tabindex", rovingFocusGroupItem?.TabIndex);
+        builder.AddAttribute(6, "data-orientation", rovingFocusGroupItem?.OrientationDataAttribute);
+        builder.AddMultipleAttributes(7, AdditionalAttributes);
+        builder.AddAttribute(8, "id", Id);
+        builder.AddComponentReferenceCapture(9, r => toggle = (ToggleRoot)r);
         builder.CloseComponent();
     };
 }

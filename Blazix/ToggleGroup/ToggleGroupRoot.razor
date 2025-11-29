@@ -9,7 +9,6 @@
     var currentContext = new ToggleGroupContext<TValue>(
         multiple: Multiple,
         groupDisabled: Disabled,
-        rovingFocusEnabled: RovingFocus,
         selectedValue: CurrentValue,
         selectedValues: CurrentValues?.ToArray(),
         onItemToggled: HandleItemToggled
@@ -172,7 +171,7 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender && RovingFocus)
+        if (firstRender)
         {
             rovingFocusGroup?.SetElement(Element);
             await (rovingFocusGroup?.InitializeAsync() ?? Task.CompletedTask);
