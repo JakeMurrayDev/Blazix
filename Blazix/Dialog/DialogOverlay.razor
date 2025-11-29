@@ -1,0 +1,130 @@
+﻿@using Blazix.Presence
+@using Microsoft.JSInterop
+@using System.Diagnostics.CodeAnalysis
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+@if (Context.Modal && IsPresent)
+{
+    <Presence Present="IsPresent">
+        <div data-state="@Context.DataState"
+             @attributes="AdditionalAttributes"
+             style="@CombineStyles(AdditionalAttributes, "pointer-events: auto;")"
+             @ref="Element">
+            @ChildContent
+        </div>
+    </Presence>
+}
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private bool isScrollLocked;
+    private bool wasOpen;
+
+    private bool EffectiveForceMount => ForceMount || (PortalContext?.ForceMount ?? false);
+
+    private bool IsPresent => EffectiveForceMount || Context.Open;
+
+    [CascadingParameter]
+    private DialogContext Context { get; set; } = default!;
+
+    [CascadingParameter]
+    private DialogPortalContext? PortalContext { get; set; }
+
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{nameof(DialogOverlay)}' must be used within a '{nameof(DialogRoot)}'.");
+        }
+
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-scroll-lock.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Lock scroll when dialog opens
+        if (Context.Open && Context.Modal && !wasOpen)
+        {
+            wasOpen = true;
+            try
+            {
+                var module = await moduleTask!.Value;
+                await module.InvokeVoidAsync("lockScroll",
+                    Context.ContentElement.HasValue ? new[] { Context.ContentElement.Value } : Array.Empty<ElementReference>());
+                isScrollLocked = true;
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+        // Unlock scroll when dialog closes
+        else if (!Context.Open && wasOpen)
+        {
+            wasOpen = false;
+            await UnlockScrollAsync();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        await UnlockScrollAsync();
+
+        if (moduleTask?.IsValueCreated == true)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private async Task UnlockScrollAsync()
+    {
+        if (isScrollLocked && moduleTask?.IsValueCreated == true)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("unlockScroll");
+                isScrollLocked = false;
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+}

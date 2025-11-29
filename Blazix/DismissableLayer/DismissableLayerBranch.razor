@@ -1,0 +1,66 @@
+﻿@using Microsoft.JSInterop
+@using System.Diagnostics.CodeAnalysis
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+
+@ChildContent
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private ElementReference? branchElement;
+    private bool isInitialized;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-dismissable-layer.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        if (moduleTask?.IsValueCreated == true && branchElement.HasValue && isInitialized)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("unregisterBranch", branchElement.Value);
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    /// <summary>
+    /// Sets the element reference for the branch.
+    /// </summary>
+    public void SetElement(ElementReference? element)
+    {
+        branchElement = element;
+    }
+
+    /// <summary>
+    /// Initializes the branch registration with JavaScript interop.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        if (!branchElement.HasValue || isInitialized) return;
+
+        try
+        {
+            var module = await moduleTask!.Value;
+            await module.InvokeVoidAsync("registerBranch", branchElement.Value);
+            isInitialized = true;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+    }
+}

@@ -1,0 +1,86 @@
+﻿@using System.Globalization
+
+@{
+    var currentContext = new DialogContext(
+        contentId: contentId,
+        titleId: titleId,
+        descriptionId: descriptionId,
+        open: CurrentOpen,
+        modal: Modal,
+        onOpenChange: HandleOpenChange,
+        onOpenToggle: HandleOpenToggle
+    );
+}
+
+<CascadingValue Value="currentContext">
+    @ChildContent
+</CascadingValue>
+
+@code {
+    private readonly string contentId = $"blx-dialog-content-{Guid.NewGuid():N}";
+    private readonly string titleId = $"blx-dialog-title-{Guid.NewGuid():N}";
+    private readonly string descriptionId = $"blx-dialog-description-{Guid.NewGuid():N}";
+
+    private bool internalOpen;
+
+    private bool Controlled => OpenChanged.HasDelegate;
+
+    private bool CurrentOpen => Controlled ? Open : internalOpen;
+
+    /// <summary>
+    /// The controlled open state of the dialog.
+    /// </summary>
+    [Parameter]
+    public bool Open { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when the open state changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>
+    /// The open state of the dialog when initially rendered.
+    /// Use when you do not need to control its open state.
+    /// </summary>
+    [Parameter]
+    public bool DefaultOpen { get; set; }
+
+    /// <summary>
+    /// The modality of the dialog. When set to <see langword="true"/>,
+    /// interaction with outside elements will be disabled and only dialog content will be visible to screen readers.
+    /// </summary>
+    [Parameter]
+    public bool Modal { get; set; } = true;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (!Controlled)
+        {
+            internalOpen = DefaultOpen;
+        }
+    }
+
+    private Task HandleOpenChange(bool open)
+    {
+        if (Controlled)
+        {
+            return OpenChanged.InvokeAsync(open);
+        }
+
+        internalOpen = open;
+        return InvokeAsync(StateHasChanged);
+    }
+
+    private Task HandleOpenToggle()
+    {
+        return HandleOpenChange(!CurrentOpen);
+    }
+}

@@ -1,0 +1,62 @@
+﻿@using System.Diagnostics.CodeAnalysis
+
+<button type="button"
+        aria-haspopup="dialog"
+        aria-expanded="@Context.Open.ToString().ToLowerInvariant()"
+        aria-controls="@Context.ContentId"
+        data-state="@Context.DataState"
+        @attributes="AdditionalAttributes"
+        @onclick="HandleClick"
+        @ref="Element">
+    @ChildContent
+</button>
+
+@code {
+    [CascadingParameter]
+    private DialogContext Context { get; set; } = default!;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{nameof(DialogTrigger)}' must be used within a '{nameof(DialogRoot)}'.");
+        }
+    }
+
+    /// <inheritdoc />
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            Context.SetTriggerElement(Element);
+        }
+    }
+
+    private Task HandleClick()
+    {
+        return Context.OnOpenToggle();
+    }
+}

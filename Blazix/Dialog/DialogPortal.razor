@@ -1,0 +1,49 @@
+﻿@using Blazix.Portal
+@using Blazix.Presence
+
+@{
+    var portalContext = new DialogPortalContext(ForceMount);
+}
+
+<CascadingValue Value="@(portalContext)">
+    <Presence Present="@(ForceMount || Context.Open)">
+        <PortalRoot Target="@Container">
+            @ChildContent
+        </PortalRoot>
+    </Presence>
+</CascadingValue>
+
+@code {
+    [CascadingParameter]
+    private DialogContext Context { get; set; } = default!;
+
+    /// <summary>
+    /// Specify a container element to portal the content into.
+    /// Defaults to <c>body</c>.
+    /// </summary>
+    [Parameter]
+    public string Container { get; set; } = "body";
+
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{nameof(DialogPortal)}' must be used within a '{nameof(DialogRoot)}'.");
+        }
+    }
+}

@@ -1,0 +1,316 @@
+﻿@using Blazix.Presence
+@using Blazix.FocusScope
+@using Blazix.DismissableLayer
+@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
+@using System.Diagnostics.CodeAnalysis
+@using static AttributeUtilities
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject ILogger<DialogContent> Logger
+
+<Presence Present="IsPresent">
+    @if (Context.Modal)
+    {
+        @ModalContent
+    }
+    else
+    {
+        @NonModalContent
+    }
+</Presence>
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private FocusScopeRoot? focusScopeRoot;
+    private DismissableLayerRoot? dismissableLayerRoot;
+    private string? ariaHiddenId;
+    private bool wasOpen;
+
+    private bool EffectiveForceMount => ForceMount || (PortalContext?.ForceMount ?? false);
+
+    private bool IsPresent => EffectiveForceMount || Context.Open;
+
+    [CascadingParameter]
+    private DialogContext Context { get; set; } = default!;
+
+    [CascadingParameter]
+    private DialogPortalContext? PortalContext { get; set; }
+
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Event handler called when auto-focusing on open.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnOpenAutoFocus { get; set; }
+
+    /// <summary>
+    /// Event handler called when auto-focusing on close.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnCloseAutoFocus { get; set; }
+
+    /// <summary>
+    /// Event handler called when the escape key is down.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<EscapeKeyDownEventArgs> OnEscapeKeyDown { get; set; }
+
+    /// <summary>
+    /// Event handler called when a pointer down event happens outside of the content.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PointerDownOutsideEventArgs> OnPointerDownOutside { get; set; }
+
+    /// <summary>
+    /// Event handler called when focus moves outside of the content.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<FocusOutsideEventArgs> OnFocusOutside { get; set; }
+
+    /// <summary>
+    /// Event handler called when an interaction happens outside the content.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnInteractOutside { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element { get; protected set; }
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        if (Context is null)
+        {
+            throw new InvalidOperationException(
+                $"'{nameof(DialogContent)}' must be used within a '{nameof(DialogRoot)}'.");
+        }
+
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-dialog.js").AsTask());
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        // Initialize when dialog opens
+        if (Context.Open && !wasOpen && Element.HasValue)
+        {
+            wasOpen = true;
+            Context.SetContentElement(Element);
+
+            focusScopeRoot?.SetElement(Element);
+            dismissableLayerRoot?.SetElement(Element);
+
+            await (focusScopeRoot?.InitializeAsync() ?? Task.CompletedTask);
+            await (dismissableLayerRoot?.InitializeAsync() ?? Task.CompletedTask);
+
+            if (Context.Modal)
+            {
+                try
+                {
+                    var module = await moduleTask!.Value;
+                    await module.InvokeVoidAsync("addFocusGuards");
+                    ariaHiddenId = await module.InvokeAsync<string>("hideOthers", Element.Value);
+                }
+                catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+            }
+        }
+        // Cleanup when dialog closes
+        else if (!Context.Open && wasOpen)
+        {
+            wasOpen = false;
+            await CleanupAsync();
+        }
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupAsync();
+
+        if (moduleTask?.IsValueCreated == true)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private async Task CleanupAsync()
+    {
+        // Cleanup FocusScope and DismissableLayer
+        if (focusScopeRoot is not null)
+        {
+            await focusScopeRoot.CleanupAsync();
+        }
+
+        if (dismissableLayerRoot is not null)
+        {
+            await dismissableLayerRoot.CleanupAsync();
+        }
+
+        // Cleanup aria-hidden and focus guards
+        if (moduleTask?.IsValueCreated == true && Context.Modal && ariaHiddenId is not null)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("removeFocusGuards");
+                await module.InvokeVoidAsync("restoreOthers", ariaHiddenId);
+                ariaHiddenId = null;
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private Task HandleDismiss() => Context.OnOpenChange(false);
+
+    private async Task HandleCloseAutoFocus(PreventableEventArgs args)
+    {
+        if (OnCloseAutoFocus.HasDelegate)
+        {
+            await OnCloseAutoFocus.InvokeAsync(args);
+        }
+
+        if (!args.Prevented && Context.TriggerElement.HasValue)
+        {
+            args.Prevented = true;
+            try
+            {
+                var module = await moduleTask!.Value;
+                await module.InvokeVoidAsync("focusElement", Context.TriggerElement.Value);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private Task HandlePointerDownOutsideModal(PointerDownOutsideEventArgs args)
+    {
+        var ctrlLeftClick = args.Button == 0 && args.CtrlKey;
+        var isRightClick = args.Button == 2 || ctrlLeftClick;
+
+        if (isRightClick)
+        {
+            args.Prevented = true;
+        }
+
+        return OnPointerDownOutside.HasDelegate
+            ? OnPointerDownOutside.InvokeAsync(args)
+            : Task.CompletedTask;
+    }
+
+    private Task HandleFocusOutsideModal(FocusOutsideEventArgs args)
+    {
+        args.Prevented = true;
+
+        return OnFocusOutside.HasDelegate
+            ? OnFocusOutside.InvokeAsync(args)
+            : Task.CompletedTask;
+    }
+
+    private RenderFragment ModalContent => builder =>
+    {
+        builder.OpenComponent<FocusScopeRoot>(0);
+        builder.AddComponentParameter(1, nameof(FocusScopeRoot.Loop), true);
+        builder.AddComponentParameter(2, nameof(FocusScopeRoot.Trapped), Context.Open);
+        builder.AddComponentParameter(3, nameof(FocusScopeRoot.OnMountAutoFocus), OnOpenAutoFocus);
+        builder.AddComponentParameter(4, nameof(FocusScopeRoot.OnUnmountAutoFocus),
+            EventCallback.Factory.Create<PreventableEventArgs>(this, HandleCloseAutoFocus));
+        builder.AddComponentParameter(5, nameof(FocusScopeRoot.ChildContent), (RenderFragment)(b2 =>
+        {
+            b2.OpenComponent<DismissableLayerRoot>(0);
+            b2.AddComponentParameter(1, nameof(DismissableLayerRoot.DisableOutsidePointerEvents), true);
+            b2.AddComponentParameter(2, nameof(DismissableLayerRoot.OnEscapeKeyDown), OnEscapeKeyDown);
+            b2.AddComponentParameter(3, nameof(DismissableLayerRoot.OnPointerDownOutside),
+                EventCallback.Factory.Create<PointerDownOutsideEventArgs>(this, HandlePointerDownOutsideModal));
+            b2.AddComponentParameter(4, nameof(DismissableLayerRoot.OnFocusOutside),
+                EventCallback.Factory.Create<FocusOutsideEventArgs>(this, HandleFocusOutsideModal));
+            b2.AddComponentParameter(5, nameof(DismissableLayerRoot.OnInteractOutside), OnInteractOutside);
+            b2.AddComponentParameter(6, nameof(DismissableLayerRoot.OnDismiss),
+                EventCallback.Factory.Create(this, HandleDismiss));
+            b2.AddComponentParameter(7, nameof(DismissableLayerRoot.ChildContent), ContentElement);
+            b2.AddComponentReferenceCapture(8, r => dismissableLayerRoot = (DismissableLayerRoot)r);
+            b2.CloseComponent();
+        }));
+        builder.AddComponentReferenceCapture(6, r => focusScopeRoot = (FocusScopeRoot)r);
+        builder.CloseComponent();
+    };
+
+    private RenderFragment NonModalContent => builder =>
+    {
+        builder.OpenComponent<FocusScopeRoot>(0);
+        builder.AddComponentParameter(1, nameof(FocusScopeRoot.Loop), true);
+        builder.AddComponentParameter(2, nameof(FocusScopeRoot.Trapped), false);
+        builder.AddComponentParameter(3, nameof(FocusScopeRoot.OnMountAutoFocus), OnOpenAutoFocus);
+        builder.AddComponentParameter(4, nameof(FocusScopeRoot.OnUnmountAutoFocus),
+            EventCallback.Factory.Create<PreventableEventArgs>(this, HandleCloseAutoFocus));
+        builder.AddComponentParameter(5, nameof(FocusScopeRoot.ChildContent), (RenderFragment)(b2 =>
+        {
+            b2.OpenComponent<DismissableLayerRoot>(0);
+            b2.AddComponentParameter(1, nameof(DismissableLayerRoot.DisableOutsidePointerEvents), false);
+            b2.AddComponentParameter(2, nameof(DismissableLayerRoot.OnEscapeKeyDown), OnEscapeKeyDown);
+            b2.AddComponentParameter(3, nameof(DismissableLayerRoot.OnPointerDownOutside), OnPointerDownOutside);
+            b2.AddComponentParameter(4, nameof(DismissableLayerRoot.OnFocusOutside), OnFocusOutside);
+            b2.AddComponentParameter(5, nameof(DismissableLayerRoot.OnInteractOutside), OnInteractOutside);
+            b2.AddComponentParameter(6, nameof(DismissableLayerRoot.OnDismiss),
+                EventCallback.Factory.Create(this, HandleDismiss));
+            b2.AddComponentParameter(7, nameof(DismissableLayerRoot.ChildContent), ContentElement);
+            b2.AddComponentReferenceCapture(8, r => dismissableLayerRoot = (DismissableLayerRoot)r);
+            b2.CloseComponent();
+        }));
+        builder.AddComponentReferenceCapture(6, r => focusScopeRoot = (FocusScopeRoot)r);
+        builder.CloseComponent();
+    };
+
+    private RenderFragment ContentElement => builder =>
+    {
+        builder.OpenElement(0, "div");
+        builder.AddAttribute(1, "role", "dialog");
+        builder.AddAttribute(2, "id", Context.ContentId);
+        builder.AddAttribute(3, "aria-describedby", Context.DescriptionId);
+        builder.AddAttribute(4, "aria-labelledby", Context.TitleId);
+        builder.AddAttribute(5, "data-state", Context.DataState);
+        builder.AddAttribute(6, "tabindex", -1);
+        builder.AddAttribute(7, "style", CombineStyles(AdditionalAttributes, $"pointer-events: auto; {focusScopeRoot?.Style}"));
+        builder.AddMultipleAttributes(8, AdditionalAttributes);
+        builder.AddElementReferenceCapture(9, r => Element = r);
+        builder.AddContent(10, ChildContent);
+        builder.CloseElement();
+    };
+}

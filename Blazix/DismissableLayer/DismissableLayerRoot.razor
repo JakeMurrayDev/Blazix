@@ -1,0 +1,223 @@
+﻿@using Microsoft.JSInterop
+@using Microsoft.Extensions.Logging
+@using System.Text.Json
+
+@implements IAsyncDisposable
+
+@inject IJSRuntime JSRuntime
+@inject ILogger<DismissableLayerRoot> Logger
+
+<CascadingValue Value="context">
+    @ChildContent
+</CascadingValue>
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private DotNetObjectReference<DismissableLayerRoot>? dotNetReference;
+    private ElementReference? layerElement;
+    private DismissableLayerContext? context;
+    private bool isInitialized;
+
+    /// <summary>
+    /// When <see langword="true"/>, hover/focus/click interactions will be disabled on elements outside
+    /// the layer. Users will need to click twice on outside elements to interact with them.
+    /// </summary>
+    [Parameter]
+    public bool DisableOutsidePointerEvents { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when the escape key is pressed.
+    /// Set <see cref="EscapeKeyDownEventArgs.Prevented"/> to <see langword="true"/> to prevent dismissal.
+    /// </summary>
+    [Parameter]
+    public EventCallback<EscapeKeyDownEventArgs> OnEscapeKeyDown { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when a pointer down event occurs outside the layer.
+    /// Set <see cref="PointerDownOutsideEventArgs.Prevented"/> to <see langword="true"/> to prevent dismissal.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PointerDownOutsideEventArgs> OnPointerDownOutside { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when focus moves outside the layer.
+    /// Set <see cref="FocusOutsideEventArgs.Prevented"/> to <see langword="true"/> to prevent dismissal.
+    /// </summary>
+    [Parameter]
+    public EventCallback<FocusOutsideEventArgs> OnFocusOutside { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when any interaction occurs outside the layer (pointer or focus).
+    /// Set <see cref="PreventableEventArgs.Prevented"/> to <see langword="true"/> to prevent dismissal.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnInteractOutside { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when the layer should be dismissed.
+    /// </summary>
+    [Parameter]
+    public EventCallback OnDismiss { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets the pointer events style for the layer.
+    /// </summary>
+    public string? PointerEventsStyle => context?.PointerEventsStyle;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-dismissable-layer.js").AsTask());
+
+        context = new DismissableLayerContext(DisableOutsidePointerEvents);
+    }
+
+    /// <inheritdoc />
+    public async ValueTask DisposeAsync()
+    {
+        await CleanupAsync();
+
+        if (moduleTask?.IsValueCreated == true)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.DisposeAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+
+        dotNetReference?.Dispose();
+    }
+
+    /// <summary>
+    /// Sets the element reference for the dismissable layer.
+    /// </summary>
+    public void SetElement(ElementReference? element)
+    {
+        layerElement = element;
+    }
+
+    /// <summary>
+    /// Initializes the dismissable layer with JavaScript interop.
+    /// </summary>
+    public async Task InitializeAsync()
+    {
+        if (!layerElement.HasValue || isInitialized) return;
+
+        try
+        {
+            var module = await moduleTask!.Value;
+            dotNetReference = DotNetObjectReference.Create(this);
+
+            var stateJson = await module.InvokeAsync<JsonElement>(
+                "initializeDismissableLayer",
+                layerElement.Value,
+                DisableOutsidePointerEvents,
+                dotNetReference);
+
+            if (stateJson.TryGetProperty("isBodyPointerEventsDisabled", out var bodyDisabled) &&
+                stateJson.TryGetProperty("isPointerEventsEnabled", out var enabled))
+            {
+                context?.UpdatePointerEventsState(bodyDisabled.GetBoolean(), enabled.GetBoolean());
+            }
+
+            isInitialized = true;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        catch (Exception ex)
+        {
+            Logger.LogError(ex, "Failed to initialize dismissable layer.");
+        }
+    }
+
+    /// <summary>
+    /// Cleans up the dismissable layer.
+    /// </summary>
+    public async Task CleanupAsync()
+    {
+        if (!isInitialized || !layerElement.HasValue) return;
+
+        try
+        {
+            var module = await moduleTask!.Value;
+            await module.InvokeVoidAsync("disposeDismissableLayer", layerElement.Value);
+            isInitialized = false;
+        }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+    }
+
+    /// <summary>
+    /// Handles pointer down outside events from JavaScript.
+    /// </summary>
+    [JSInvokable]
+    public async Task<bool> HandlePointerDownOutside(PointerDownOutsideEventArgs args)
+    {
+        if (OnPointerDownOutside.HasDelegate)
+        {
+            await OnPointerDownOutside.InvokeAsync(args);
+            if (args.Prevented) return true;
+        }
+
+        if (OnInteractOutside.HasDelegate)
+        {
+            await OnInteractOutside.InvokeAsync(args);
+            if (args.Prevented) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Handles focus outside events from JavaScript.
+    /// </summary>
+    [JSInvokable]
+    public async Task<bool> HandleFocusOutside(FocusOutsideEventArgs args)
+    {
+        if (OnFocusOutside.HasDelegate)
+        {
+            await OnFocusOutside.InvokeAsync(args);
+            if (args.Prevented) return true;
+        }
+
+        if (OnInteractOutside.HasDelegate)
+        {
+            await OnInteractOutside.InvokeAsync(args);
+            if (args.Prevented) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Handles escape key down events from JavaScript.
+    /// </summary>
+    [JSInvokable]
+    public async Task<bool> HandleEscapeKeyDown()
+    {
+        if (OnEscapeKeyDown.HasDelegate)
+        {
+            var args = new EscapeKeyDownEventArgs();
+            await OnEscapeKeyDown.InvokeAsync(args);
+            return args.Prevented;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Handles dismiss events from JavaScript.
+    /// </summary>
+    [JSInvokable]
+    public async Task HandleDismiss()
+    {
+        await OnDismiss.InvokeAsync();
+    }
+}
