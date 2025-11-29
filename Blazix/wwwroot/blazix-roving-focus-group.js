@@ -1,6 +1,17 @@
 ﻿const ENTRY_FOCUS = 'rovingFocusGroup.onEntryFocus';
 const EVENT_OPTIONS = { bubbles: false, cancelable: true };
 
+const NAVIGATION_KEYS = new Set([
+    'ArrowLeft',
+    'ArrowRight',
+    'ArrowUp',
+    'ArrowDown',
+    'Home',
+    'End',
+    'PageUp',
+    'PageDown',
+]);
+
 const groupHandlers = new Map();
 const itemHandlers = new Map();
 
@@ -64,11 +75,7 @@ export function disposeRovingFocusGroup(element) {
     }
 }
 
-export function initializeRovingFocusGroupItem(
-    element,
-    focusable,
-    dotNetRef
-) {
+export function initializeRovingFocusGroupItem(element, focusable, dotNetRef) {
     const handleMouseDown = (event) => {
         if (!focusable) {
             event.preventDefault();
@@ -94,21 +101,19 @@ export function initializeRovingFocusGroupItem(
             return;
         }
 
-        const keysThatTriggerFocusIntent = [
-            'ArrowLeft',
-            'ArrowRight',
-            'ArrowUp',
-            'ArrowDown',
-            'Home',
-            'End',
-            'PageUp',
-            'PageDown',
-        ];
+        // Only prevent default for navigation keys, NEVER for Enter/Space
+        // This must happen synchronously before the async .NET call
+        const isNavigationKey = NAVIGATION_KEYS.has(event.key);
+        
+        if (isNavigationKey) {
+            // Only prevent default if no modifier keys are pressed
+            if (!event.metaKey && !event.ctrlKey && !event.altKey && !event.shiftKey) {
+                event.preventDefault();
+            }
+        }
 
-        if (
-            event.key === 'Tab' ||
-            keysThatTriggerFocusIntent.includes(event.key)
-        ) {
+        // Handle Tab+Shift or navigation keys in .NET
+        if (event.key === 'Tab' || isNavigationKey) {
             try {
                 await dotNetRef.invokeMethodAsync(
                     'HandleKeyDown',
@@ -118,17 +123,6 @@ export function initializeRovingFocusGroupItem(
                     event.altKey,
                     event.metaKey
                 );
-
-                if (keysThatTriggerFocusIntent.includes(event.key)) {
-                    if (
-                        !event.metaKey &&
-                        !event.ctrlKey &&
-                        !event.altKey &&
-                        !event.shiftKey
-                    ) {
-                        event.preventDefault();
-                    }
-                }
             } catch {
                 // Ignore if .NET is disconnected
             }
@@ -145,6 +139,16 @@ export function initializeRovingFocusGroupItem(
         handleKeyDown,
         dotNetRef,
     });
+}
+
+export function disposeRovingFocusGroupItem(element) {
+    const handlers = itemHandlers.get(element);
+    if (handlers) {
+        element.removeEventListener('mousedown', handlers.handleMouseDown);
+        element.removeEventListener('focus', handlers.handleFocus);
+        element.removeEventListener('keydown', handlers.handleKeyDown);
+        itemHandlers.delete(element);
+    }
 }
 
 export function focusFirst(candidates, preventScroll = false) {

@@ -10,11 +10,11 @@
 @ChildContent
 
 @code {
-    private readonly static string defaultId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+    private readonly string defaultId = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+
     private Lazy<Task<IJSObjectReference>>? moduleTask;
     private DotNetObjectReference<RovingFocusGroupItem>? dotNetReference;
     private ElementReference? itemElement;
-    private bool keyDownPrevented;
 
     private string EffectiveId => TabStopId ?? defaultId ?? string.Empty;
     private bool IsCurrentTabStop => Context.CurrentTabStopId == EffectiveId;
@@ -52,14 +52,9 @@
     public int TabIndex => IsCurrentTabStop ? 0 : -1;
 
     /// <summary>
-    /// Determines whether the most recent keydown event was prevented.
-    /// </summary>
-    public bool KeyDownPrevented => keyDownPrevented;
-
-    /// <summary>
     /// Gets the data-orientation attribute value based on the context's orientation.
     /// </summary>
-    public string? DataOrientation => Context.Orientation.ToDataAttributeString();
+    public string? OrientationDataAttribute => Context.Orientation.ToDataAttributeString();
 
     /// <summary>
     /// Gets the element reference for this item.
@@ -98,7 +93,6 @@
     /// <summary>
     /// Sets the element reference for this item.
     /// </summary>
-    /// <param name="element">The element reference to set.</param>
     public void SetElement(ElementReference? element)
     {
         itemElement = element;
@@ -107,7 +101,6 @@
     /// <summary>
     /// Method to initialize the roving focus functionality for this item.
     /// </summary>
-    /// <returns></returns>
     public async Task InitializeAsync()
     {
         if (itemElement.HasValue)
@@ -130,30 +123,25 @@
 
     /// <summary>
     /// Method invoked by JavaScript when a keydown event occurs on this item.
+    /// Called from JS with individual key properties.
     /// </summary>
-    /// <param name="e"></param>
-    /// <returns></returns>
-    public async Task OnKeyDown(KeyboardEventArgs e)
+    [JSInvokable]
+    public async Task HandleKeyDown(string key, bool shiftKey, bool ctrlKey, bool altKey, bool metaKey)
     {
-        keyDownPrevented = false;
-
-        if (e.Key == "Tab" && e.ShiftKey)
+        if (key == "Tab" && shiftKey)
         {
             Context.OnItemShiftTab();
             return;
         }
 
-        var focusIntent = GetFocusIntent(e.Key, Context.Orientation,
-            Context.ReadingDirection);
+        var focusIntent = GetFocusIntent(key, Context.Orientation, Context.ReadingDirection);
 
         if (focusIntent != FocusIntent.Undefined)
         {
-            if (e.MetaKey || e.CtrlKey || e.AltKey || e.ShiftKey)
+            if (metaKey || ctrlKey || altKey || shiftKey)
             {
                 return;
             }
-
-            keyDownPrevented = true;
 
             var items = Context.GetFocusableItems();
             var candidateNodes = items
@@ -197,7 +185,28 @@
     }
 
     /// <summary>
-    /// Method to programmatically focus this item.
+    /// Method invoked by JavaScript when this item receives focus.
+    /// </summary>
+    [JSInvokable]
+    public void HandleFocus()
+    {
+        Context.OnItemFocus(EffectiveId);
+    }
+
+    /// <summary>
+    /// Method invoked by JavaScript when a mousedown event occurs on this item.
+    /// </summary>
+    [JSInvokable]
+    public void HandleMouseDown()
+    {
+        if (Focusable)
+        {
+            Context.OnItemFocus(EffectiveId);
+        }
+    }
+
+    /// <summary>
+    /// Method to programmatically focus this item (called from Blazor code).
     /// </summary>
     public void Focus()
     {
@@ -205,7 +214,7 @@
     }
 
     /// <summary>
-    /// Method invoked when this item is clicked.
+    /// Method to handle mouse down from Blazor (called from Blazor code).
     /// </summary>
     public void OnMouseDown()
     {
@@ -213,6 +222,15 @@
         {
             Context.OnItemFocus(EffectiveId);
         }
+    }
+
+    /// <summary>
+    /// Method invoked when a keydown event occurs on this item.
+    /// This is for use when called from Blazor components (not JS).
+    /// </summary>
+    public Task OnKeyDown(KeyboardEventArgs e)
+    {
+        return HandleKeyDown(e.Key, e.ShiftKey, e.CtrlKey, e.AltKey, e.MetaKey);
     }
 
     private static string GetDirectionAwareKey(string key, ReadingDirection dir)
@@ -229,19 +247,16 @@
         };
     }
 
-    private static FocusIntent GetFocusIntent(string key, Orientation orientation,
-        ReadingDirection dir)
+    private static FocusIntent GetFocusIntent(string key, Orientation orientation, ReadingDirection dir)
     {
         var directionAwareKey = GetDirectionAwareKey(key, dir);
 
-        if (orientation == Orientation.Vertical &&
-            (directionAwareKey is "ArrowLeft" or "ArrowRight"))
+        if (orientation == Orientation.Vertical && directionAwareKey is "ArrowLeft" or "ArrowRight")
         {
             return FocusIntent.Undefined;
         }
 
-        if (orientation == Orientation.Horizontal &&
-            (directionAwareKey is "ArrowUp" or "ArrowDown"))
+        if (orientation == Orientation.Horizontal && directionAwareKey is "ArrowUp" or "ArrowDown")
         {
             return FocusIntent.Undefined;
         }
@@ -264,7 +279,7 @@
     {
         if (array.Length == 0)
         {
-            return Array.Empty<T>();
+            return [];
         }
 
         var result = new T[array.Length];
