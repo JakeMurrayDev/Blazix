@@ -1,23 +1,16 @@
 @using Blazix.Collapsible
-@using Blazix.FocusGroup
 @using System.Diagnostics.CodeAnalysis
 
-<FocusGroupItem @ref="focusGroupItem">
-    <CollapsibleTrigger aria-disabled="@IsAriaDisabled"
-                        id="@ItemContext?.TriggerId"
-                        data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
-                        @attributes="AdditionalAttributes"
-                        @onkeydown="HandleKeyDown"
-                        @onfocus="HandleFocus"
-                        @onblur="HandleBlur"
-                        @ref="collapsibleTrigger">
-        @ChildContent
-    </CollapsibleTrigger>
-</FocusGroupItem>
+<CollapsibleTrigger aria-disabled="@IsAriaDisabled"
+                    id="@ItemContext?.TriggerId"
+                    data-orientation="@AccordionContext?.GroupOrientation.ToDataAttributeString()"
+                    @attributes="AdditionalAttributes"
+                    @ref="collapsibleTrigger">
+    @ChildContent
+</CollapsibleTrigger>
 
 @code {
     private ElementReference? element;
-    private FocusGroupItem? focusGroupItem;
     private CollapsibleTrigger? collapsibleTrigger;
 
     private bool IsAriaDisabled => ItemContext?.IsOpen == true && AccordionContext?.IsCollapsible == false;
@@ -61,19 +54,4 @@
             throw new InvalidOperationException($"'{nameof(AccordionTrigger)}' must be used within an '{nameof(__Blazor.Blazix.Accordion.AccordionItem)}'.");
         }
     }
-
-    /// <inheritdoc />
-    protected override void OnAfterRender(bool firstRender)
-    {
-        if (firstRender)
-        {
-            focusGroupItem?.SetElement(collapsibleTrigger?.Element);
-        }
-    }
-
-    private Task HandleKeyDown(KeyboardEventArgs e) => focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
-
-    private void HandleFocus() => focusGroupItem?.Focus();
-
-    private void HandleBlur() => focusGroupItem?.Blur();
 }

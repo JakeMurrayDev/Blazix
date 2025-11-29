@@ -1,5 +1,4 @@
-﻿@using Blazix.FocusGroup
-@using System.Diagnostics.CodeAnalysis
+﻿@using System.Diagnostics.CodeAnalysis
 
 @typeparam TValue
 
@@ -15,17 +14,13 @@
     );
 }
 
-<FocusGroup Orientation="Orientation"
-            ReadingDirection="ReadingDirection"
-            Loop="true">
-    <CascadingValue Value="accordionContext">
-        <div data-orientation="@Orientation.ToDataAttributeString()"
-             @attributes="AdditionalAttributes"
-             @ref="Element">
-            @ChildContent
-        </div>
-    </CascadingValue>
-</FocusGroup>
+<CascadingValue Value="accordionContext">
+    <div data-orientation="@Orientation.ToDataAttributeString()"
+         @attributes="AdditionalAttributes"
+         @ref="Element">
+        @ChildContent
+    </div>
+</CascadingValue>
 
 @code {
     private bool multipleCached;
