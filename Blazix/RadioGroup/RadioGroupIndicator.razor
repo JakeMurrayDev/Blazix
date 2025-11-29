@@ -3,8 +3,8 @@
 
 <Presence As="span"
           Present="Present"
-          data-state="@(Context?.Checked == true ? "checked" : "unchecked")"
-          data-disabled="@(Context?.Disabled == true)"
+          data-state="@(Context?.Checked is true ? "checked" : "unchecked")"
+          data-disabled="@(Context?.Disabled is true)"
           @attributes="AdditionalAttributes"
           @ref="presenceComponent">
     @ChildContent
@@ -14,7 +14,7 @@
     private Presence? presenceComponent;
     private ElementReference? element;
 
-    private bool Present => ForceMount || Context?.Checked == true;
+    private bool Present => ForceMount || Context?.Checked is true;
 
     [CascadingParameter]
     private RadioGroupItemContext? Context { get; set; }

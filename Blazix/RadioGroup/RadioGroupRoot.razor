@@ -1,5 +1,5 @@
-﻿@using Blazix.FocusGroup
-@using System.Diagnostics.CodeAnalysis
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
 @using Microsoft.AspNetCore.Components.Forms
 
 @typeparam TValue
@@ -14,21 +14,25 @@
     );
 
     RenderFragment content =
-    @<FocusGroup Orientation="Orientation"
-                 ReadingDirection="ReadingDirection"
-                 Loop="Loop">
+    @<RovingFocusGroupRoot @ref="rovingFocusGroup"
+                               Orientation="Orientation"
+                               ReadingDirection="ReadingDirection"
+                               Loop="Loop"
+                               CurrentTabStopId="@CurrentValue?.ToString()">
         <CascadingValue Value="radioGroupContext">
             <div role="radiogroup"
                  aria-required="@Required"
                  aria-orientation="@Orientation.ToDataAttributeString()"
                  data-disabled="@(Disabled ? string.Empty : null)"
                  dir="@(ReadingDirection == ReadingDirection.Undefined ? null : ReadingDirection.ToDataAttributeString())"
+                 tabindex="@(Loop? rovingFocusGroup?.TabIndex : null)"
                  @attributes="AdditionalAttributes"
+                 style="@CombineStyles(AdditionalAttributes, Loop ? rovingFocusGroup?.Style : null)"
                  @ref="Element">
                 @ChildContent
             </div>
         </CascadingValue>
-    </FocusGroup>;
+    </RovingFocusGroupRoot>;
 }
 
 @if (IsFormControl)
@@ -46,6 +50,7 @@ else
 
 @code {
     private TValue? internalValue;
+    private RovingFocusGroupRoot? rovingFocusGroup;
 
     private bool IsFormControl => EditContext != null;
     private bool IsControlled => ValueChanged.HasDelegate;
@@ -77,11 +82,22 @@ else
     [DisallowNull]
     public ElementReference? Element { get; protected set; }
 
+    /// <inheritdoc />
     protected override void OnInitialized()
     {
         if (!IsControlled)
         {
             internalValue = DefaultValue;
+        }
+    }
+
+    /// <inheritdoc />
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            rovingFocusGroup?.SetElement(Element);
+            await (rovingFocusGroup?.InitializeAsync() ?? Task.CompletedTask);
         }
     }
 

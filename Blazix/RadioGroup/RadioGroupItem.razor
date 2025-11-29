@@ -1,4 +1,4 @@
-﻿@using Blazix.FocusGroup
+﻿@using Blazix.RovingFocusGroup
 @using Microsoft.AspNetCore.Components.Web
 @using Microsoft.AspNetCore.Components.Forms
 @using Microsoft.Extensions.Logging
@@ -10,7 +10,6 @@
 @implements IAsyncDisposable
 
 @inject IJSRuntime JSRuntime
-
 @inject ILogger<RadioGroupItem<TValue>> Logger
 
 @{
@@ -31,8 +30,11 @@
     var itemContext = new RadioGroupItemContext(isChecked, actualItemDisabled);
 }
 
-<FocusGroupItem @ref="focusGroupItem">
-    <CascadingValue Value="itemContext" IsFixed="false">
+<RovingFocusGroupItem @ref="rovingFocusGroupItem"
+                      Focusable="!actualItemDisabled"
+                      Active="isChecked">
+    <CascadingValue Value="itemContext"
+                    IsFixed="false">
         <button type="button"
                 role="radio"
                 aria-checked="@isChecked.ToString().ToLowerInvariant()"
@@ -40,18 +42,17 @@
                 data-disabled="@(actualItemDisabled ? string.Empty : null)"
                 disabled="@actualItemDisabled"
                 value="@(Value is not null ? BindConverter.FormatValue(Value.ToString()) : null)"
+                tabindex="@rovingFocusGroupItem?.TabIndex"
                 @attributes="AdditionalAttributes"
                 @onclick="HandleClick"
                 @onclick:stopPropagation="IsFormControl"
-                @onkeydown="HandleKeyDown"
-                @onkeydown:preventDefault="preventDefaultKeyDown"
                 @onfocus="HandleFocus"
-                @onblur="HandleBlur"
+                @onmousedown="HandleMouseDown"
                 @ref="Element">
             @ChildContent
         </button>
     </CascadingValue>
-</FocusGroupItem>
+</RovingFocusGroupItem>
 
 @if (IsFormControl)
 {
@@ -67,11 +68,9 @@
 }
 
 @code {
-    private readonly string instanceId = $"blx-{Guid.NewGuid():N}";
-    private bool preventDefaultKeyDown;
-    private FocusGroupItem? focusGroupItem;
+    private RovingFocusGroupItem? rovingFocusGroupItem;
     private InputRadio<TValue>? inputRadio;
-    private IJSObjectReference? module;
+    private Lazy<Task<IJSObjectReference>> moduleTask = default!;
 
     private bool IsFormControl => EditContext != null;
 
@@ -97,6 +96,12 @@
     public ElementReference? Element { get; protected set; }
 
     /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/Blazix/blazix-radiogroup.js").AsTask());
+    }
+
+    /// <inheritdoc />
     protected override void OnParametersSet()
     {
         if (Context is null)
@@ -108,23 +113,26 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
+        var module = await moduleTask.Value;
         if (firstRender)
         {
-            focusGroupItem?.SetElement(Element);
+            rovingFocusGroupItem?.SetElement(Element);
+            await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
             try
             {
-                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/Blazix/blazix-radiogroup.js");
-
-                await module.InvokeVoidAsync("addArrowKeyListeners");
+                if (module is not null)
+                {
+                    await module.InvokeVoidAsync("addArrowKeyListeners");
+                }
             }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
             catch (Exception ex)
             {
                 Logger.LogError("Error importing blazix-radiogroup.js: {ErrorMessage}", ex.Message);
             }
         }
 
-        if (module != null && IsFormControl && Element.HasValue && inputRadio?.Element != null)
+        if (module is not null && IsFormControl && Element.HasValue && inputRadio?.Element != null)
         {
             await module.InvokeVoidAsync("syncInputSize", Element.Value, inputRadio.Element.Value);
         }
@@ -133,15 +141,18 @@
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (module != null)
+        if (moduleTask.IsValueCreated)
         {
             try
             {
-                await module.InvokeVoidAsync("removeArrowKeyListeners");
-                await module.DisposeAsync();
+                var module = await moduleTask.Value;
+                if (module != null)
+                {
+                    await module.InvokeVoidAsync("removeArrowKeyListeners", Element);
+                    await module.DisposeAsync();
+                }
             }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */}
-            module = null;
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
         }
     }
 
@@ -159,32 +170,29 @@
             await Context.OnValueChange(Value);
         }
 
+        var module = await moduleTask.Value;
         if (IsFormControl && module != null && inputRadio?.Element != null)
         {
             await module.InvokeVoidAsync("triggerClick", inputRadio.Element.Value);
         }
     }
 
-    private Task HandleKeyDown(KeyboardEventArgs e)
-    {
-        preventDefaultKeyDown = e.Key == "Enter";
-
-        return focusGroupItem?.OnKeyDown(e) ?? Task.CompletedTask;
-    }
-
     private async Task HandleFocus()
     {
-        if (module is null) return;
+        var module = await moduleTask.Value;
 
-        focusGroupItem?.Focus();
-
-        bool isArrowKeyPressed = await module.InvokeAsync<bool>("isArrowKeyPressed");
-
-        if (isArrowKeyPressed)
+        if (module is not null)
         {
-            await HandleClick();
+            rovingFocusGroupItem?.Focus();
+
+            bool isArrowKeyPressed = await module.InvokeAsync<bool>("isArrowKeyPressed");
+
+            if (isArrowKeyPressed)
+            {
+                await HandleClick();
+            }
         }
     }
 
-    private void HandleBlur() => focusGroupItem?.Blur();
+    private void HandleMouseDown() => rovingFocusGroupItem?.OnMouseDown();
 }
