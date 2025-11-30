@@ -1,0 +1,29 @@
+﻿@using Blazix.Dialog
+@using System.Diagnostics.CodeAnalysis
+
+<DialogTrigger @ref="dialogTrigger"
+               @attributes="AdditionalAttributes">
+    @ChildContent
+</DialogTrigger>
+
+@code {
+    private DialogTrigger? dialogTrigger;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element => dialogTrigger?.Element;
+}

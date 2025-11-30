@@ -298,10 +298,12 @@
         builder.CloseComponent();
     };
 
+    private string Role => AdditionalAttributes?.TryGetValue("role", out var role) == true && role is string r ? r : "dialog";
+
     private RenderFragment ContentElement => builder =>
     {
         builder.OpenElement(0, "div");
-        builder.AddAttribute(1, "role", "dialog");
+        builder.AddAttribute(1, "role", Role);
         builder.AddAttribute(2, "id", Context.ContentId);
         builder.AddAttribute(3, "aria-describedby", Context.DescriptionId);
         builder.AddAttribute(4, "aria-labelledby", Context.TitleId);

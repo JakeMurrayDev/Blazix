@@ -1,0 +1,35 @@
+﻿@using Blazix.Dialog
+
+<DialogRoot Open="@Open"
+            OpenChanged="@OpenChanged"
+            DefaultOpen="@DefaultOpen"
+            Modal="true">
+    @ChildContent
+</DialogRoot>
+
+@code {
+    /// <summary>
+    /// The controlled open state of the alert dialog.
+    /// </summary>
+    [Parameter]
+    public bool Open { get; set; }
+
+    /// <summary>
+    /// Event callback invoked when the open state changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<bool> OpenChanged { get; set; }
+
+    /// <summary>
+    /// The open state of the alert dialog when initially rendered.
+    /// Use when you do not need to control its open state.
+    /// </summary>
+    [Parameter]
+    public bool DefaultOpen { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+}

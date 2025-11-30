@@ -1,0 +1,126 @@
+﻿@using Blazix.Dialog
+@using Microsoft.JSInterop
+@using System.Diagnostics.CodeAnalysis
+
+@inject IJSRuntime JSRuntime
+
+@{
+    var contentContext = new AlertDialogContentContext();
+}
+
+<CascadingValue Value="contentContext">
+    <DialogContent @ref="dialogContent"
+                   ForceMount="@ForceMount"
+                   OnOpenAutoFocus="@HandleOpenAutoFocus"
+                   OnCloseAutoFocus="@OnCloseAutoFocus"
+                   OnEscapeKeyDown="@OnEscapeKeyDown"
+                   OnPointerDownOutside="@HandlePointerDownOutside"
+                   OnFocusOutside="@HandleFocusOutside"
+                   OnInteractOutside="@HandleInteractOutside"
+                   role="alertdialog"
+                   @attributes="AdditionalAttributes">
+        @ChildContent
+    </DialogContent>
+</CascadingValue>
+
+@code {
+    private Lazy<Task<IJSObjectReference>>? moduleTask;
+    private DialogContent? dialogContent;
+    private AlertDialogContentContext contentContext = new();
+
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Event handler called when auto-focusing on open.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnOpenAutoFocus { get; set; }
+
+    /// <summary>
+    /// Event handler called when auto-focusing on close.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<PreventableEventArgs> OnCloseAutoFocus { get; set; }
+
+    /// <summary>
+    /// Event handler called when the escape key is down.
+    /// Can be prevented.
+    /// </summary>
+    [Parameter]
+    public EventCallback<EscapeKeyDownEventArgs> OnEscapeKeyDown { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element => dialogContent?.Element;
+
+    /// <inheritdoc />
+    protected override void OnInitialized()
+    {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-dialog.js").AsTask());
+    }
+
+    private async Task HandleOpenAutoFocus(PreventableEventArgs args)
+    {
+        // Always prevent default and focus Cancel button instead
+        args.Prevented = true;
+
+        if (OnOpenAutoFocus.HasDelegate)
+        {
+            await OnOpenAutoFocus.InvokeAsync(args);
+        }
+
+        // Focus the Cancel button if available
+        if (contentContext.CancelElement.HasValue)
+        {
+            try
+            {
+                var module = await moduleTask!.Value;
+                await module.InvokeVoidAsync("focusElement", contentContext.CancelElement.Value);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
+    private Task HandlePointerDownOutside(PointerDownOutsideEventArgs args)
+    {
+        // AlertDialog always prevents pointer down outside
+        args.Prevented = true;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleFocusOutside(FocusOutsideEventArgs args)
+    {
+        // AlertDialog always prevents focus outside
+        args.Prevented = true;
+        return Task.CompletedTask;
+    }
+
+    private Task HandleInteractOutside(PreventableEventArgs args)
+    {
+        // AlertDialog always prevents interactions outside
+        args.Prevented = true;
+        return Task.CompletedTask;
+    }
+}

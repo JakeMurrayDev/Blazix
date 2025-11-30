@@ -1,0 +1,37 @@
+﻿@using Blazix.Dialog
+@using System.Diagnostics.CodeAnalysis
+
+<DialogOverlay @ref="dialogOverlay"
+               ForceMount="@ForceMount"
+               @attributes="AdditionalAttributes">
+    @ChildContent
+</DialogOverlay>
+
+@code {
+    private DialogOverlay? dialogOverlay;
+
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
+    [Parameter]
+    public bool ForceMount { get; set; }
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// </summary>
+    [DisallowNull]
+    public ElementReference? Element => dialogOverlay?.Element;
+}
