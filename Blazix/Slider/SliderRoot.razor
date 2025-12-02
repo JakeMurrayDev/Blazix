@@ -39,27 +39,28 @@
 </CascadingValue>
 
 @code {
+    private readonly string defaultThumbIdPrefix = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
+    private readonly Dictionary<int, string> thumbIds = new();
+    private readonly List<SliderThumb> registeredThumbs = new();
+
     private Lazy<Task<IJSObjectReference>> moduleTask = default!;
     private DotNetObjectReference<SliderRoot>? dotNetObjectReference;
     private double[] currentValues = [];
     private double[] valuesBeforeSlideStart = [];
     private ReadingDirection actualReadingDirection;
     private int valueIndexToChange;
-    private readonly string defaultThumbIdPrefix = Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture);
-    private readonly Dictionary<int, string> thumbIds = new();
-    private readonly List<SliderThumb> registeredThumbs = new();
 
     private bool IsControlled => ValueChanged.HasDelegate;
     private double[] CurrentValues => IsControlled ? Value?.ToArray() ?? [] : currentValues;
 
     /// <summary>
-    /// Gets or sets he name of the slider. Submitted with its owning form as part of a name/value pair.
+    /// Gets or sets the name of the slider. Submitted with its owning form as part of a name/value pair.
     /// </summary>
     [Parameter]
     public string? Name { get; set; }
 
     /// <summary>
-    /// When <see langword="true"/> , prevents the user from interacting with the slider.
+    /// When <see langword="true"/>, prevents the user from interacting with the slider.
     /// </summary>
     [Parameter]
     public bool Disabled { get; set; }
@@ -95,7 +96,7 @@
     public double Step { get; set; } = 1;
 
     /// <summary>
-    /// The minimum permitted <see cref="Step"/>s between multiple thumb.
+    /// The minimum permitted <see cref="Step"/>s between multiple thumbs.
     /// </summary>
     [Parameter]
     public double MinStepsBetweenThumbs { get; set; } = 0;
@@ -188,7 +189,10 @@
                     dotNetObjectReference,
                     Orientation.ToDataAttributeString(),
                     Inverted,
-                    actualReadingDirection.ToDataAttributeString()
+                    actualReadingDirection.ToDataAttributeString(),
+                    Min,
+                    Max,
+                    CurrentValues
                 );
             }
             catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
@@ -209,6 +213,70 @@
             }
             catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
+    }
+
+    [JSInvokable]
+    public void HandleSlideStart(int closestIndex)
+    {
+        if (Disabled) return;
+        valuesBeforeSlideStart = [.. CurrentValues];
+        valueIndexToChange = closestIndex;
+    }
+
+    [JSInvokable]
+    public async Task HandleSlideMove(double value)
+    {
+        if (Disabled) return;
+        await UpdateValue(valueIndexToChange, value);
+    }
+
+    [JSInvokable]
+    public async Task HandleSlideEnd()
+    {
+        if (Disabled) return;
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleHomeKey()
+    {
+        if (Disabled) return;
+        await UpdateValue(0, Min);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleEndKey()
+    {
+        if (Disabled) return;
+        await UpdateValue(CurrentValues.Length - 1, Max);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public async Task HandleStepKey(bool isBackKey, bool isPageKey, bool isShiftKey)
+    {
+        if (Disabled) return;
+
+        var multiplier = (isPageKey || isShiftKey) ? 10 : 1;
+        var direction = isBackKey ? -1 : 1;
+        var value = CurrentValues[valueIndexToChange];
+        var stepInDirection = Step * multiplier * direction;
+
+        await UpdateValue(valueIndexToChange, value + stepInDirection);
+        await CommitValues();
+    }
+
+    [JSInvokable]
+    public void SetValueIndexToChange(int index)
+    {
+        valueIndexToChange = index;
+    }
+
+    [JSInvokable]
+    public double[] GetCurrentValues()
+    {
+        return CurrentValues;
     }
 
     private int RegisterThumb(SliderThumb thumb)
@@ -246,15 +314,14 @@
     {
         var decimalCount = GetDecimalCount(Step);
         var snapToStep = RoundValue(
-            double.CreateChecked(Math.Round(
-                double.CreateChecked((value - Min) / Step))) * Step + Min,
+            Math.Round((value - Min) / Step) * Step + Min,
             decimalCount
         );
         var nextValue = Math.Clamp(snapToStep, Min, Max);
 
         var nextValues = GetNextSortedValues(CurrentValues, nextValue, index);
 
-        if (HasMinStepsBetweenValues(nextValues, double.CreateChecked(MinStepsBetweenThumbs) * Step))
+        if (HasMinStepsBetweenValues(nextValues, MinStepsBetweenThumbs * Step))
         {
             var newIndex = Array.IndexOf(nextValues, nextValue);
             var indexChanged = newIndex != valueIndexToChange;
@@ -270,11 +337,27 @@
                 StateHasChanged();
             }
 
+            // Update JS with new values for accurate closest-index calculations
+            await UpdateJsValues(nextValues);
+
             if (indexChanged)
             {
                 await Task.Delay(1);
                 FocusThumbAtIndex(valueIndexToChange);
             }
+        }
+    }
+
+    private async Task UpdateJsValues(double[] values)
+    {
+        if (moduleTask.IsValueCreated && Element.HasValue)
+        {
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("updateValues", Element.Value, values);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
@@ -287,94 +370,6 @@
         {
             await OnValueCommit.InvokeAsync(CurrentValues);
         }
-    }
-
-    [JSInvokable]
-    public void HandleSlideStart(double clientX, double clientY)
-    {
-        if (Disabled) return;
-        valuesBeforeSlideStart = [.. CurrentValues];
-    }
-
-    [JSInvokable]
-    public async Task HandleSlideMove(double clientX, double clientY, double width, double height, double left, double top)
-    {
-        if (Disabled) return;
-
-        var value = Orientation == Orientation.Horizontal
-            ? GetValueFromPointer(clientX, width, left, Min, Max, Inverted, actualReadingDirection)
-            : GetValueFromPointer(clientY, height, top, Max, Min, Inverted, ReadingDirection.LeftToRight);
-
-        await UpdateValue(valueIndexToChange, value);
-    }
-
-    [JSInvokable]
-    public async Task HandleSlideEnd()
-    {
-        if (Disabled) return;
-        await CommitValues();
-    }
-
-    [JSInvokable]
-    public async Task HandleHomeKey()
-    {
-        if (Disabled) return;
-        await UpdateValue(0, Min);
-        await CommitValues();
-    }
-
-    [JSInvokable]
-    public async Task HandleEndKey()
-    {
-        if (Disabled) return;
-        await UpdateValue(CurrentValues.Length - 1, Max);
-        await CommitValues();
-    }
-
-    [JSInvokable]
-    public async Task HandleStepKey(bool isBackKey, bool isPageKey, bool isShiftKey)
-    {
-        if (Disabled) return;
-
-        var multiplier = (isPageKey || isShiftKey) ? 10 : 1;
-        var direction = isBackKey ? -1 : 1;
-        var value = CurrentValues[valueIndexToChange];
-        var stepInDirection = Step * double.CreateChecked(multiplier * direction);
-
-        await UpdateValue(valueIndexToChange, value + stepInDirection);
-        await CommitValues();
-    }
-
-    [JSInvokable]
-    public void SetValueIndexToChange(int index)
-    {
-        valueIndexToChange = index;
-    }
-
-    private static double GetValueFromPointer(
-        double pointerPosition,
-        double size,
-        double offset,
-        double outputMin,
-        double outputMax,
-        bool inverted,
-        ReadingDirection direction)
-    {
-        var input = pointerPosition - offset;
-        var percent = input / size;
-
-        var isReversed = (direction == ReadingDirection.LeftToRight && !inverted) ||
-                        (direction == ReadingDirection.RightToLeft && inverted);
-
-        if (!isReversed)
-        {
-            percent = 1 - percent;
-        }
-
-        var range = double.CreateChecked(outputMax - outputMin);
-        var value = outputMin + double.CreateChecked(percent * range);
-
-        return value;
     }
 
     private static double[] GetNextSortedValues(double[] prevValues, double nextValue, int atIndex)
@@ -409,7 +404,6 @@
     private static double RoundValue(double value, int decimalCount)
     {
         var multiplier = Math.Pow(10, decimalCount);
-        var rounded = Math.Round(value * multiplier) / multiplier;
-        return rounded;
+        return Math.Round(value * multiplier) / multiplier;
     }
 }

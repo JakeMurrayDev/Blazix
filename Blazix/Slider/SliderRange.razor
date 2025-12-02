@@ -45,8 +45,9 @@
 
     private string GetStyle()
     {
+        var existingStyle = GetExistingStyle();
         if (Context is null || Context.Values.Length == 0)
-            return string.Empty;
+            return existingStyle;
 
         var percentages = Context.Values
             .Select(v => ConvertValueToPercentage(v, Context.Min, Context.Max))
@@ -57,10 +58,18 @@
 
         var (startEdge, endEdge) = GetEdges();
 
-        var style = $"{startEdge}: {offsetStart:F2}%; {endEdge}: {offsetEnd:F2}%";
-        var existingStyle = CombineStyles(AdditionalAttributes, null);
+        var rangeStyle = $"{startEdge}: {offsetStart:F2}%; {endEdge}: {offsetEnd:F2}%;";
+        
+        return string.IsNullOrEmpty(existingStyle) ? rangeStyle : $"{existingStyle} {rangeStyle}";
+    }
 
-        return string.IsNullOrEmpty(existingStyle) ? style : $"{existingStyle}; {style}";
+    private string GetExistingStyle()
+    {
+        if (AdditionalAttributes?.TryGetValue("style", out var styleObj) == true && styleObj is string style)
+        {
+            return style;
+        }
+        return string.Empty;
     }
 
     private (string startEdge, string endEdge) GetEdges()

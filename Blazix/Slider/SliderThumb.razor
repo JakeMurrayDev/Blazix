@@ -1,5 +1,6 @@
 ﻿@using System.Diagnostics.CodeAnalysis
 @using static SliderHelpers
+@using Blazix.BubbleInput
 @using Microsoft.JSInterop
 
 @implements IDisposable
@@ -97,6 +98,18 @@
         }
     }
 
+    public async Task FocusAsync()
+    {
+        if (Element.HasValue)
+        {
+            try
+            {
+                await Element.Value.FocusAsync();
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
+        }
+    }
+
     private void UpdateCurrentValue()
     {
         if (Context is null || index < 0 || index >= Context.Values.Length)
@@ -110,24 +123,12 @@
 
     private void UpdateFormControl()
     {
-        isFormControl = !string.IsNullOrEmpty(Context?.Form);
+        isFormControl = !string.IsNullOrEmpty(Context?.Form) || !string.IsNullOrEmpty(Context?.Name);
     }
 
     private void HandleFocus()
     {
         Context?.FocusThumbAtIndex(index);
-    }
-
-    public async Task FocusAsync()
-    {
-        if (Element.HasValue)
-        {
-            try
-            {
-                await Element.Value.FocusAsync();
-            }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
-        }
     }
 
     private string GetThumbContainerStyle()

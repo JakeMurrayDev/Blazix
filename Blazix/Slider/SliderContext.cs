@@ -1,5 +1,8 @@
 ﻿namespace Blazix.Slider;
 
+/// <summary>
+/// Represents the state and properties shared within a Slider component tree.
+/// </summary>
 internal sealed record SliderValueContext(
     string? Name,
     bool Disabled,

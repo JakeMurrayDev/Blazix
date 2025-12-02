@@ -1,14 +1,28 @@
-const sliders = new Map();
+const BLAZIX_SLIDER_STATE_KEY = Symbol.for("Blazix.Slider.State");
 
-export function initialize(sliderElement, dotNetHelper, orientation, isInverted, direction) {
+if (!window[BLAZIX_SLIDER_STATE_KEY]) {
+    window[BLAZIX_SLIDER_STATE_KEY] = new Map();
+}
+const sliders = window[BLAZIX_SLIDER_STATE_KEY];
+
+export function initialize(sliderElement, dotNetHelper, orientation, isInverted, direction, min, max, values) {
     if (!sliderElement || !dotNetHelper) return;
 
-    let isSliding = false;
+    const state = {
+        isSliding: false,
+        orientation,
+        isInverted,
+        direction,
+        min,
+        max,
+        values: [...values],
+        rectCache: null
+    };
 
     const isHorizontal = orientation === "horizontal";
     const isLTR = direction === "ltr";
 
-    // Determine slide direction
+    // Determine slide direction for back keys
     let backKeys;
     if (isHorizontal) {
         const isSlidingFromLeft = (isLTR && !isInverted) || (!isLTR && isInverted);
@@ -22,57 +36,86 @@ export function initialize(sliderElement, dotNetHelper, orientation, isInverted,
             : ["Home", "PageDown", "ArrowUp", "ArrowLeft"];
     }
 
+    function linearScale(input, output) {
+        return (value) => {
+            if (input[0] === input[1] || output[0] === output[1]) return output[0];
+            const ratio = (output[1] - output[0]) / (input[1] - input[0]);
+            return output[0] + ratio * (value - input[0]);
+        };
+    }
+
+    function getValueFromPointer(pointerPosition, rect) {
+        if (isHorizontal) {
+            const isSlidingFromLeft = (isLTR && !isInverted) || (!isLTR && isInverted);
+            const input = [0, rect.width];
+            const output = isSlidingFromLeft ? [state.min, state.max] : [state.max, state.min];
+            const scale = linearScale(input, output);
+            return scale(pointerPosition - rect.left);
+        } else {
+            const isSlidingFromBottom = !isInverted;
+            const input = [0, rect.height];
+            const output = isSlidingFromBottom ? [state.max, state.min] : [state.min, state.max];
+            const scale = linearScale(input, output);
+            return scale(pointerPosition - rect.top);
+        }
+    }
+
+    function getClosestValueIndex(values, nextValue) {
+        if (values.length === 1) return 0;
+        const distances = values.map((value) => Math.abs(value - nextValue));
+        const closestDistance = Math.min(...distances);
+        return distances.indexOf(closestDistance);
+    }
+
     const handlePointerDown = (e) => {
         const target = e.target;
-
         if (target.hasAttribute("data-disabled")) return;
 
         target.setPointerCapture(e.pointerId);
         e.preventDefault();
 
         const isThumb = target.getAttribute("role") === "slider";
+
         if (isThumb) {
             target.focus();
-            const thumbs = Array.from(
-                sliderElement.querySelectorAll('[role="slider"]')
-            );
+            const thumbs = Array.from(sliderElement.querySelectorAll('[role="slider"]'));
             const index = thumbs.indexOf(target);
             dotNetHelper.invokeMethodAsync("SetValueIndexToChange", index);
-        }
-
-        dotNetHelper.invokeMethodAsync("HandleSlideStart", e.clientX, e.clientY);
-
-        if (!isThumb) {
+            dotNetHelper.invokeMethodAsync("HandleSlideStart", index);
+        } else {
+            // Clicked on track - calculate value and find closest thumb
             const rect = sliderElement.getBoundingClientRect();
-            dotNetHelper.invokeMethodAsync(
-                "HandleSlideMove",
-                e.clientX,
-                e.clientY,
-                rect.width,
-                rect.height,
-                rect.left,
-                rect.top
-            );
+            state.rectCache = rect;
+
+            const pointerPos = isHorizontal ? e.clientX : e.clientY;
+            const value = getValueFromPointer(pointerPos, rect);
+            const closestIndex = getClosestValueIndex(state.values, value);
+
+            dotNetHelper.invokeMethodAsync("HandleSlideStart", closestIndex);
+            dotNetHelper.invokeMethodAsync("HandleSlideMove", value);
+
+            // Focus the closest thumb
+            const thumbs = Array.from(sliderElement.querySelectorAll('[role="slider"]'));
+            if (thumbs[closestIndex]) {
+                thumbs[closestIndex].focus();
+            }
         }
 
-        isSliding = true;
+        state.isSliding = true;
     };
 
     const handlePointerMove = (e) => {
-        if (!isSliding) return;
+        if (!state.isSliding) return;
 
         const target = e.target;
         if (target.hasPointerCapture(e.pointerId)) {
-            const rect = sliderElement.getBoundingClientRect();
-            dotNetHelper.invokeMethodAsync(
-                "HandleSlideMove",
-                e.clientX,
-                e.clientY,
-                rect.width,
-                rect.height,
-                rect.left,
-                rect.top
-            );
+            const rect = state.rectCache || sliderElement.getBoundingClientRect();
+            state.rectCache = rect;
+
+            const pointerPos = isHorizontal ? e.clientX : e.clientY;
+            const value = getValueFromPointer(pointerPos, rect);
+
+            dotNetHelper.invokeMethodAsync("HandleSlideMove", value);
         }
     };
 
@@ -80,20 +123,19 @@ export function initialize(sliderElement, dotNetHelper, orientation, isInverted,
         const target = e.target;
         if (target.hasPointerCapture(e.pointerId)) {
             target.releasePointerCapture(e.pointerId);
-            if (isSliding) {
+            if (state.isSliding) {
+                state.rectCache = null;
                 dotNetHelper.invokeMethodAsync("HandleSlideEnd");
-                isSliding = false;
+                state.isSliding = false;
             }
         }
     };
 
     const handleKeyDown = (e) => {
         const target = e.target;
-        if (
-            target.getAttribute("role") !== "slider" ||
-            target.hasAttribute("data-disabled")
-        )
+        if (target.getAttribute("role") !== "slider" || target.hasAttribute("data-disabled")) {
             return;
+        }
 
         const PAGE_KEYS = ["PageUp", "PageDown"];
         const ARROW_KEYS = ["ArrowUp", "ArrowDown", "ArrowLeft", "ArrowRight"];
@@ -108,12 +150,7 @@ export function initialize(sliderElement, dotNetHelper, orientation, isInverted,
             e.preventDefault();
             const isBackKey = backKeys.includes(e.key);
             const isPageKey = PAGE_KEYS.includes(e.key);
-            dotNetHelper.invokeMethodAsync(
-                "HandleStepKey",
-                isBackKey,
-                isPageKey,
-                e.shiftKey
-            );
+            dotNetHelper.invokeMethodAsync("HandleStepKey", isBackKey, isPageKey, e.shiftKey);
         }
     };
 
@@ -123,22 +160,32 @@ export function initialize(sliderElement, dotNetHelper, orientation, isInverted,
     sliderElement.addEventListener("keydown", handleKeyDown);
 
     sliders.set(sliderElement, {
+        state,
         handlePointerDown,
         handlePointerMove,
         handlePointerUp,
-        handleKeyDown,
+        handleKeyDown
     });
+}
+
+export function updateValues(sliderElement, values) {
+    if (!sliderElement) return;
+
+    const slider = sliders.get(sliderElement);
+    if (slider) {
+        slider.state.values = [...values];
+    }
 }
 
 export function dispose(sliderElement) {
     if (!sliderElement) return;
 
-    const handlers = sliders.get(sliderElement);
-    if (handlers) {
-        sliderElement.removeEventListener("pointerdown", handlers.handlePointerDown);
-        sliderElement.removeEventListener("pointermove", handlers.handlePointerMove);
-        sliderElement.removeEventListener("pointerup", handlers.handlePointerUp);
-        sliderElement.removeEventListener("keydown", handlers.handleKeyDown);
+    const slider = sliders.get(sliderElement);
+    if (slider) {
+        sliderElement.removeEventListener("pointerdown", slider.handlePointerDown);
+        sliderElement.removeEventListener("pointermove", slider.handlePointerMove);
+        sliderElement.removeEventListener("pointerup", slider.handlePointerUp);
+        sliderElement.removeEventListener("keydown", slider.handleKeyDown);
         sliders.delete(sliderElement);
     }
 }
