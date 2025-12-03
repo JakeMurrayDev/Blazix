@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Components.Forms;
+
 namespace Blazix.Checkbox;
 
 /// <summary>

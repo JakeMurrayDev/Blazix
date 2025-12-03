@@ -6,7 +6,7 @@
           data-state="@(Context?.State.GetDataState())"
           data-disabled="@(Context?.Disabled == true)"
           @attributes="AdditionalAttributes"
-          style="@Style"
+          style="@CombineStyles(AdditionalAttributes, "pointer-events: none;")"
           @ref="presenceComponent">
     @ChildContent
 </Presence>
@@ -15,9 +15,7 @@
     private Presence? presenceComponent;
     private ElementReference? element;
 
-    private string? Style => CombineStyles(AdditionalAttributes, "pointer-events: none;");
-
-    private bool Present => ForceMount || (Context?.State == CheckedState.Checked || Context?.State == CheckedState.Indeterminate);
+    private bool Present => ForceMount || Context?.State is CheckedState.Checked or CheckedState.Indeterminate;
 
     [CascadingParameter]
     private CheckboxContext? Context { get; set; }

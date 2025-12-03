@@ -23,7 +23,7 @@
             @onkeydown:preventDefault="keydownPreventDefault"
             @onclick="HandleClick"
             @onclick:stopPropagation="clickStopPropagation"
-            @ref="buttonElement">
+            @ref="Element">
         @ChildContent
     </button>
 
@@ -46,15 +46,15 @@
 
 @code {
     private readonly string defaultId = $"blx-{Guid.NewGuid():N}";
+
+    private Lazy<Task<IJSObjectReference>> moduleTask = null!;
     private CheckboxContext context = new(CheckedState.Unchecked, false);
     private CheckedState internalState = CheckedState.Unchecked;
+    private CheckedState initialCheckedState = CheckedState.Unchecked;
+    private NullableInputCheckbox? inputCheckbox;
     private bool keydownPreventDefault;
     private bool clickStopPropagation;
-    private bool hasConsumerStoppedPropagation = false;
-    private ElementReference buttonElement;
-    private NullableInputCheckbox? inputCheckbox;
-    private CheckedState initialCheckedState = CheckedState.Unchecked;
-    private IJSObjectReference? module;
+    private bool isDisposed;
 
     private string Id => GetIdOrDefault(AdditionalAttributes, defaultId);
 
@@ -94,7 +94,7 @@
     public Expression<Func<bool?>>? CheckedExpression { get; set; }
 
     /// <summary>
-    /// Gets or sets the display name of the switch.
+    /// Gets or sets the display name of the checkbox.
     /// <para>
     /// This value is used when generating error messages when the input value fails to parse correctly.
     /// </para>
@@ -132,7 +132,8 @@
     /// <summary>
     /// Defines the child components of this instance.
     /// </summary>
-    [Parameter] public RenderFragment? ChildContent { get; set; }
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
 
     /// <summary>
     /// Gets or sets a collection of additional attributes that will be applied to the created element.
@@ -147,16 +148,21 @@
     /// </para>
     /// </summary>
     [DisallowNull]
-    public ElementReference? Element { get; private set; }
+    public ElementReference? Element { get; protected set; }
 
     /// <inheritdoc />
     protected override void OnInitialized()
     {
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-checkbox.js").AsTask());
+
         initialCheckedState = IsControlled ? Checked.ToCheckedState() : DefaultChecked.ToCheckedState();
+
         if (!IsControlled)
         {
             internalState = initialCheckedState;
         }
+
         UpdateContext();
     }
 
@@ -179,18 +185,7 @@
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        if (firstRender)
-        {
-            try
-            {
-                module = await JSRuntime.InvokeAsync<IJSObjectReference>(
-                    "import", "./_content/Blazix/blazix-checkbox.js");
-            }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
-        }
-
-        // Sync size after module is potentially loaded and if needed
-        if (module != null && IsFormControl && inputCheckbox?.Element != null)
+        if (firstRender && IsFormControl && inputCheckbox?.Element != null)
         {
             await SyncInputSize();
         }
@@ -199,13 +194,17 @@
     /// <inheritdoc />
     public async ValueTask DisposeAsync()
     {
-        if (module != null)
+        if (isDisposed) return;
+        isDisposed = true;
+
+        if (moduleTask.IsValueCreated)
         {
             try
             {
+                var module = await moduleTask.Value;
                 await module.DisposeAsync();
             }
-            catch (Exception ex) when (ex is JSDisconnectedException || ex is TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
@@ -216,10 +215,14 @@
 
     private async Task SyncInputSize()
     {
-        if (module != null && inputCheckbox?.Element != null)
+        if (inputCheckbox?.Element == null || Element == null) return;
+
+        try
         {
-            await module.InvokeVoidAsync("syncInputSize", buttonElement, inputCheckbox.Element);
+            var module = await moduleTask.Value;
+            await module.InvokeVoidAsync("syncInputSize", Element, inputCheckbox.Element);
         }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
     }
 
     private void HandleKeyDown(KeyboardEventArgs e)
@@ -229,7 +232,7 @@
 
     private async Task HandleClick(MouseEventArgs e)
     {
-        if (Disabled || module == null) return;
+        if (Disabled) return;
 
         CheckedState nextState = CurrentCheckedState switch
         {
@@ -239,13 +242,11 @@
             _ => CheckedState.Checked
         };
 
-        hasConsumerStoppedPropagation = false;
         clickStopPropagation = false;
 
         if (IsControlled)
         {
             await CheckedChanged.InvokeAsync(nextState.ToNullableBool());
-            hasConsumerStoppedPropagation = false;
         }
         else
         {
@@ -253,24 +254,16 @@
             UpdateContext();
         }
 
-        if (IsFormControl)
+        if (IsFormControl && inputCheckbox?.Element != null)
         {
             clickStopPropagation = true;
 
-            if (inputCheckbox?.Element != null)
+            try
             {
-                await module.InvokeVoidAsync(
-                    "triggerInputEvents",
-                    inputCheckbox.Element,
-                    nextState.ToNullableBool(),
-                    !hasConsumerStoppedPropagation // bubbles = true
-                );
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("triggerInputEvents", inputCheckbox.Element, nextState.ToNullableBool(), true);
             }
-        }
-        // If not in a form, but uncontrolled, we might need to trigger a render
-        else if (!IsControlled)
-        {
-            StateHasChanged();
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
@@ -279,12 +272,14 @@
         if (!IsControlled)
         {
             CheckedState newState = newValue.ToCheckedState();
+
             if (internalState != newState)
             {
                 internalState = newState;
                 UpdateContext();
             }
         }
+
         return Task.CompletedTask;
     }
 }
