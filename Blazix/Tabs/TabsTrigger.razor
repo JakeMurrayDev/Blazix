@@ -35,21 +35,40 @@
     [CascadingParameter]
     private TabsContext? Context { get; set; }
 
+    /// <summary>
+    /// Gets or sets a unique value that associates the trigger with a content.
+    /// </summary>
     [Parameter, EditorRequired]
     public string Value { get; set; } = default!;
 
+    /// <summary>
+    /// When <see langword="true" />, prevents the user from interacting with the tab.
+    /// </summary>
     [Parameter]
     public bool Disabled { get; set; }
 
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
     [DisallowNull]
     public ElementReference? Element { get; protected set; }
 
+    /// <inheritdoc />
     protected override void OnParametersSet()
     {
         if (Context is null)

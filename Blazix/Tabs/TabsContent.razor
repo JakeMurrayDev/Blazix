@@ -50,10 +50,17 @@
     /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
-
+    
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
     [DisallowNull]
     public ElementReference? Element => presence?.Element;
 
+    /// <inheritdoc />
     protected override void OnParametersSet()
     {
         if (Context is null)
@@ -65,6 +72,7 @@
         contentId = TabsHelper.MakeContentId(Context.BaseId, Value);
     }
 
+    /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
         if (firstRender && isMountAnimationPrevented)
