@@ -1,6 +1,5 @@
 import { syncInputSize } from './blazix-utilities.js';
 
-
 const BLAZIX_RADIO_GROUP_STATE_KEY = Symbol.for("Blazix.RadioGroup.State");
 
 if (!window[BLAZIX_RADIO_GROUP_STATE_KEY]) {
@@ -41,7 +40,8 @@ export function addArrowKeyListeners() {
  */
 export function removeArrowKeyListeners() {
     state.listenerReferenceCount--;
-    if (state.listenerReferenceCount === 0) {
+    if (state.listenerReferenceCount <= 0) {
+        state.listenerReferenceCount = 0;
         document.removeEventListener('keydown', handleGlobalKeyDown);
         document.removeEventListener('keyup', handleGlobalKeyUp);
     }
@@ -62,9 +62,8 @@ export function isArrowKeyPressed() {
  */
 export function triggerClick(inputElement) {
     if (inputElement) {
-        const event = new Event('click', { bubbles: true });
         inputElement.checked = true;
-        inputElement.dispatchEvent(event);
+        inputElement.dispatchEvent(new Event('click', { bubbles: true }));
     }
 }
 

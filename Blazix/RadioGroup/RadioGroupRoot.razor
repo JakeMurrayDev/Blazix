@@ -58,30 +58,87 @@ else
     private TValue? BoundValue
     {
         get => CurrentValue;
-        set
-        {
-            _ = HandleValueChangeAsync(value);
-        }
+        set => _ = HandleValueChangeAsync(value);
     }
 
     [CascadingParameter]
     private EditContext? EditContext { get; set; }
 
-    [Parameter] public TValue? DefaultValue { get; set; }
-    [Parameter] public TValue? Value { get; set; }
-    [Parameter] public EventCallback<TValue?> ValueChanged { get; set; }
-    [Parameter] public string? Name { get; set; }
-    [Parameter] public bool Required { get; set; }
-    [Parameter] public bool Disabled { get; set; }
-    [Parameter] public Orientation Orientation { get; set; }
-    [Parameter] public ReadingDirection ReadingDirection { get; set; }
-    [Parameter] public bool Loop { get; set; } = true;
-    [Parameter] public RenderFragment? ChildContent { get; set; }
-    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+    /// <summary>
+    /// Gets or sets the value of the selected radio item when initially rendered.
+    /// </summary>
+    [Parameter]
+    public TValue? DefaultValue { get; set; }
 
+    /// <summary>
+    /// Gets or sets the controlled value of the selected radio item.
+    /// </summary>
+    [Parameter]
+    public TValue? Value { get; set; }
+
+    /// <summary>
+    /// Gets or sets the event handler called when the value of the radio group changes.
+    /// </summary>
+    [Parameter]
+    public EventCallback<TValue?> ValueChanged { get; set; }
+
+    /// <summary>
+    /// Gets or sets the name of the group. Submitted with its owning form as part of a name/value pair.
+    /// </summary>
+    [Parameter]
+    public string? Name { get; set; }
+
+    /// <summary>
+    /// When <see langword="true" />, indicates that the user must check a radio item before the owning form can be submitted.
+    /// </summary>
+    [Parameter]
+    public bool Required { get; set; }
+
+    /// <summary>
+    /// When <see langword="true" />, prevents the user from interacting with radio items.
+    /// </summary>
+    [Parameter]
+    public bool Disabled { get; set; }
+
+    /// <summary>
+    /// Gets or sets the orientation of the component.
+    /// </summary>
+    [Parameter]
+    public Orientation Orientation { get; set; }
+
+    /// <summary>
+    /// Gets or sets the reading direction of the navigation.
+    /// </summary>
+    [Parameter]
+    public ReadingDirection ReadingDirection { get; set; }
+
+    /// <summary>
+    /// When <see langword="true" />, keyboard navigation will loop from last item to first, and vice versa. Defaults to <see langword="true"/>.
+    /// </summary>
+    [Parameter]
+    public bool Loop { get; set; } = true;
+
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
+    [Parameter]
+    public RenderFragment? ChildContent { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
     [DisallowNull]
     public ElementReference? Element { get; protected set; }
-
+    
     /// <inheritdoc />
     protected override void OnInitialized()
     {

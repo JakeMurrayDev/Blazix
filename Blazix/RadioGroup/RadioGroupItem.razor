@@ -1,9 +1,9 @@
-﻿@using Blazix.RovingFocusGroup
-@using Microsoft.AspNetCore.Components.Web
+﻿@using System.Diagnostics.CodeAnalysis
+@using Blazix.RovingFocusGroup
 @using Microsoft.AspNetCore.Components.Forms
+@using Microsoft.AspNetCore.Components.Web
 @using Microsoft.Extensions.Logging
 @using Microsoft.JSInterop
-@using System.Diagnostics.CodeAnalysis
 
 @typeparam TValue
 
@@ -12,35 +12,16 @@
 @inject IJSRuntime JSRuntime
 @inject ILogger<RadioGroupItem<TValue>> Logger
 
-@{
-    bool isChecked = false;
-    bool isGroupDisabled = false;
-    string? groupName = null;
-    bool isRequired = false;
-
-    if (Context != null)
-    {
-        isChecked = EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
-        isGroupDisabled = Context.IsGroupDisabled;
-        groupName = Context.Name;
-        isRequired = Context.Required;
-    }
-
-    bool actualItemDisabled = isGroupDisabled || Disabled;
-    var itemContext = new RadioGroupItemContext(isChecked, actualItemDisabled);
-}
-
 <RovingFocusGroupItem @ref="rovingFocusGroupItem"
-                      Focusable="!actualItemDisabled"
-                      Active="isChecked">
-    <CascadingValue Value="itemContext"
-                    IsFixed="false">
+                      Focusable="!ActualDisabled"
+                      Active="IsChecked">
+    <CascadingValue Value="ItemContext" IsFixed="false">
         <button type="button"
                 role="radio"
-                aria-checked="@isChecked.ToString().ToLowerInvariant()"
-                data-state="@(isChecked ? "checked" : "unchecked")"
-                data-disabled="@(actualItemDisabled ? string.Empty : null)"
-                disabled="@actualItemDisabled"
+                aria-checked="@IsChecked.ToString().ToLowerInvariant()"
+                data-state="@(IsChecked ? "checked" : "unchecked")"
+                data-disabled="@(ActualDisabled ? string.Empty : null)"
+                disabled="@ActualDisabled"
                 value="@(Value is not null ? BindConverter.FormatValue(Value.ToString()) : null)"
                 tabindex="@rovingFocusGroupItem?.TabIndex"
                 @attributes="AdditionalAttributes"
@@ -59,10 +40,10 @@
     <InputRadio TValue="TValue"
                 @ref="inputRadio"
                 aria-hidden="true"
-                name="@groupName"
+                name="@Context?.Name"
                 Value="@Value"
-                disabled="@actualItemDisabled"
-                required="@isRequired"
+                disabled="@ActualDisabled"
+                required="@(Context?.Required ?? false)"
                 tabindex="-1"
                 style="transform: translateX(-100%); position: absolute; pointer-events: none; opacity: 0; margin: 0;" />
 }
@@ -73,6 +54,10 @@
     private Lazy<Task<IJSObjectReference>> moduleTask = default!;
 
     private bool IsFormControl => EditContext != null;
+    private bool IsChecked => Context != null &&
+        EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
+    private bool ActualDisabled => (Context?.IsGroupDisabled ?? false) || Disabled;
+    private RadioGroupItemContext ItemContext => new(IsChecked, ActualDisabled);
 
     [CascadingParameter]
     private EditContext? EditContext { get; set; }
@@ -80,25 +65,45 @@
     [CascadingParameter]
     private RadioGroupContext<TValue>? Context { get; set; }
 
+    /// <summary>
+    /// Gets or sets the value given as data when submitted with a name.
+    /// </summary>
     [Parameter, EditorRequired]
     public TValue Value { get; set; } = default!;
 
+    /// <summary>
+    /// When <see langword="true" />, prevents the user from interacting with the radio item.
+    /// Defaults to false.
+    /// </summary>
     [Parameter]
     public bool Disabled { get; set; }
 
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
 
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
     [Parameter(CaptureUnmatchedValues = true)]
     public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
+    /// <summary>
+    /// Gets or sets the associated <see cref="ElementReference"/>.
+    /// <para>
+    /// May be <see langword="null"/> if accessed before the component is rendered.
+    /// </para>
+    /// </summary>
     [DisallowNull]
     public ElementReference? Element { get; protected set; }
 
     /// <inheritdoc />
     protected override void OnInitialized()
     {
-        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>("import", "./_content/Blazix/blazix-radiogroup.js").AsTask());
+        moduleTask = new(() => JSRuntime.InvokeAsync<IJSObjectReference>(
+            "import", "./_content/Blazix/blazix-radiogroup.js").AsTask());
     }
 
     /// <inheritdoc />
@@ -106,35 +111,40 @@
     {
         if (Context is null)
         {
-            throw new InvalidOperationException($"'{nameof(RadioGroupItem<TValue>)}' must be used within a '{nameof(RadioGroupRoot<TValue>)}' component that provides a '{nameof(RadioGroupContext<TValue>)}'.");
+            throw new InvalidOperationException(
+                $"'{nameof(RadioGroupItem<TValue>)}' must be used within a " +
+                $"'{nameof(RadioGroupRoot<TValue>)}' component.");
         }
     }
 
     /// <inheritdoc />
     protected override async Task OnAfterRenderAsync(bool firstRender)
     {
-        var module = await moduleTask.Value;
         if (firstRender)
         {
             rovingFocusGroupItem?.SetElement(Element);
             await (rovingFocusGroupItem?.InitializeAsync() ?? Task.CompletedTask);
+
             try
             {
-                if (module is not null)
-                {
-                    await module.InvokeVoidAsync("addArrowKeyListeners");
-                }
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("addArrowKeyListeners");
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
             catch (Exception ex)
             {
-                Logger.LogError("Error importing blazix-radiogroup.js: {ErrorMessage}", ex.Message);
+                Logger.LogError(ex, "Error initializing RadioGroupItem JS module");
             }
         }
 
-        if (module is not null && IsFormControl && Element.HasValue && inputRadio?.Element != null)
+        if (IsFormControl && Element.HasValue && inputRadio?.Element != null)
         {
-            await module.InvokeVoidAsync("syncInputSize", Element.Value, inputRadio.Element.Value);
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("syncInputSize", Element.Value, inputRadio.Element.Value);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
@@ -146,45 +156,40 @@
             try
             {
                 var module = await moduleTask.Value;
-                if (module != null)
-                {
-                    await module.InvokeVoidAsync("removeArrowKeyListeners", Element);
-                    await module.DisposeAsync();
-                }
+                await module.InvokeVoidAsync("removeArrowKeyListeners");
+                await module.DisposeAsync();
             }
-            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { /* Swallow */ }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
     private async Task HandleClick()
     {
-        if (Context is null) return;
+        if (Context is null || ActualDisabled) return;
 
-        bool isChecked = EqualityComparer<TValue>.Default.Equals(Context.SelectedValue, Value);
-        bool actualItemDisabled = Context.IsGroupDisabled || Disabled;
-
-        if (actualItemDisabled) return;
-
-        if (!isChecked)
+        if (!IsChecked)
         {
             await Context.OnValueChange(Value);
         }
 
-        var module = await moduleTask.Value;
-        if (IsFormControl && module != null && inputRadio?.Element != null)
+        if (IsFormControl && inputRadio?.Element != null)
         {
-            await module.InvokeVoidAsync("triggerClick", inputRadio.Element.Value);
+            try
+            {
+                var module = await moduleTask.Value;
+                await module.InvokeVoidAsync("triggerClick", inputRadio.Element.Value);
+            }
+            catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
         }
     }
 
     private async Task HandleFocus()
     {
-        var module = await moduleTask.Value;
+        rovingFocusGroupItem?.Focus();
 
-        if (module is not null)
+        try
         {
-            rovingFocusGroupItem?.Focus();
-
+            var module = await moduleTask.Value;
             bool isArrowKeyPressed = await module.InvokeAsync<bool>("isArrowKeyPressed");
 
             if (isArrowKeyPressed)
@@ -192,6 +197,7 @@
                 await HandleClick();
             }
         }
+        catch (Exception ex) when (ex is JSDisconnectedException or TaskCanceledException) { }
     }
 
     private void HandleMouseDown() => rovingFocusGroupItem?.OnMouseDown();

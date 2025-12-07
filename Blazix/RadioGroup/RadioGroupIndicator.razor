@@ -2,9 +2,9 @@
 @using Blazix.Presence
 
 <Presence As="span"
-          Present="Present"
+          Present="IsPresent"
           data-state="@(Context?.Checked is true ? "checked" : "unchecked")"
-          data-disabled="@(Context?.Disabled is true)"
+          data-disabled="@(Context?.Disabled is true ? string.Empty : null)"
           @attributes="AdditionalAttributes"
           @ref="presenceComponent">
     @ChildContent
@@ -12,19 +12,30 @@
 
 @code {
     private Presence? presenceComponent;
-    private ElementReference? element;
 
-    private bool Present => ForceMount || Context?.Checked is true;
+    private bool IsPresent => ForceMount || Context?.Checked is true;
 
     [CascadingParameter]
     private RadioGroupItemContext? Context { get; set; }
 
+    /// <summary>
+    /// Used to force mounting when more control is needed.
+    /// Useful when controlling animation with CSS or animation libraries.
+    /// </summary>
     [Parameter]
     public bool ForceMount { get; set; }
 
+    /// <summary>
+    /// Defines the child components of this instance.
+    /// </summary>
     [Parameter]
     public RenderFragment? ChildContent { get; set; }
-    [Parameter(CaptureUnmatchedValues = true)] public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
+
+    /// <summary>
+    /// Gets or sets a collection of additional attributes that will be applied to the created element.
+    /// </summary>
+    [Parameter(CaptureUnmatchedValues = true)]
+    public IReadOnlyDictionary<string, object>? AdditionalAttributes { get; set; }
 
     /// <summary>
     /// Gets or sets the associated <see cref="ElementReference"/>.
@@ -33,17 +44,16 @@
     /// </para>
     /// </summary>
     [DisallowNull]
-    public ElementReference? Element
-    {
-        get => element ?? presenceComponent?.Element;
-        protected set => element = value;
-    }
+    public ElementReference? Element => presenceComponent?.Element;
 
+    /// <inheritdoc />
     protected override void OnParametersSet()
     {
         if (Context is null)
         {
-            throw new InvalidOperationException($"'{nameof(RadioGroupItemContext)}' must be used within a '{nameof(__Blazor.Blazix.RadioGroup.RadioGroupItem)}' component that provides a '{nameof(RadioGroupItemContext)}'.");
+            throw new InvalidOperationException(
+                $"'{nameof(RadioGroupIndicator)}' must be used within a " +
+                $"'{nameof(RadioGroupItem<object>)}' component.");
         }
     }
 }

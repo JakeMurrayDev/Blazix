@@ -14,8 +14,7 @@ function shouldExclude(element) {
     if (element.tagName === 'SCRIPT' || element.tagName === 'STYLE') return true;
     
     // Exclude focus guards
-    if (element.hasAttribute('data-blazix-focus-guard') || 
-        element.hasAttribute('data-radix-focus-guard')) return true;
+    if (element.hasAttribute('data-blazix-focus-guard')) return true;
     
     // Exclude elements already hidden (not by us)
     if (element.getAttribute('aria-hidden') === 'true' && 
